@@ -44,4 +44,8 @@ For a separate deployment, deploy the `frontend` directory as a Next.js app and 
 
 ## GitHub
 
-The current Git remote in this checkout is the placeholder `YOUR_REPOSITORY_URL`. Replace it with the intended GitHub repository before pushing. Never commit `.env`, `.env.local`, access tokens, or generated files. The checked-in `.gitignore` excludes these secrets.
+This checkout uses `https://github.com/TESSARACT13/investiq.git` as its GitHub remote. To authenticate on macOS, install GitHub CLI with `brew install gh`, then run `gh auth login` and choose GitHub.com, HTTPS, and browser sign-in. Confirm with `gh auth status`; then push with `git push -u origin main`. Never paste access tokens into chat or commit `.env`, `.env.local`, or credentials.
+
+## Publish a shareable website
+
+Deploy the `backend` directory as a Render Web Service (build: `pip install -r requirements.txt`; start: `uvicorn main:app --host 0.0.0.0 --port $PORT`). Set `UPSTOX_ACCESS_TOKEN` as a private Render environment variable and set `CORS_ORIGINS` to the exact Vercel frontend origin. Deploy the `frontend` directory to Vercel as a Next.js project and set `NEXT_PUBLIC_API_URL` to the Render HTTPS service URL. Redeploy the frontend after setting that URL; then share its Vercel URL. Keep the Upstox token only in Render's private environment settings.

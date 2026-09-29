@@ -159,15 +159,14 @@ export default function AdvisorPage() {
           So we specifically read data.stocks.
         */
 
-        const rawScores = Array.isArray(data)
+        const sourceScores = Array.isArray(data)
           ? data
-          : Array.isArray(data?.stocks)
-            ? data.stocks
-            : Array.isArray(data?.scores)
-              ? data.scores
-              : Array.isArray(data?.data)
-                ? data.data
-                : [];
+          : data?.stocks ?? data?.scores ?? data?.data;
+        const rawScores = Array.isArray(sourceScores)
+          ? sourceScores
+          : sourceScores && typeof sourceScores === "object"
+            ? Object.values(sourceScores)
+            : [];
 
         const normalized = rawScores
           .map((item: any) => normalizeScore(item))
@@ -192,7 +191,7 @@ export default function AdvisorPage() {
         setScores([]);
 
         setError(
-          "Unable to connect to the AI scoring backend. Make sure the FastAPI backend is running on port 8000."
+          `Unable to load advisor data from ${API_URL}. Check that the FastAPI backend is running and reachable.`
         );
       } finally {
         setLoading(false);
@@ -642,13 +641,15 @@ function AIScoreCard({
           View stock
           <ChevronRight size={14} />
         </Link>
-        <Link
-          href={`/trade?symbol=${encodeURIComponent(item.symbol)}&side=BUY`}
-          className="flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
-        >
-          Buy
-          <ChevronRight size={14} />
-        </Link>
+        {signal === "BUY" && (
+          <Link
+            href={`/trade?symbol=${encodeURIComponent(item.symbol)}&side=BUY`}
+            className="flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
+          >
+            Buy
+            <ChevronRight size={14} />
+          </Link>
+        )}
         </div>
       </div>
     </div>

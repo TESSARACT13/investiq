@@ -131,7 +131,7 @@ function TradePageContent() {
       searchParams.get("quantity")
     );
 
-    if (symbol && STOCK_NAMES[symbol]) {
+    if (symbol && /^[A-Z0-9.-]+$/.test(symbol)) {
       setSelectedSymbol(symbol);
     }
 
@@ -171,7 +171,7 @@ function TradePageContent() {
         value?.symbol ??
         key.split(":").pop();
 
-      if (!symbol || !STOCK_NAMES[symbol]) {
+      if (!symbol || !/^[A-Z0-9.-]+$/.test(symbol)) {
         continue;
       }
 
@@ -208,7 +208,7 @@ function TradePageContent() {
 
       results.push({
         symbol,
-        name: STOCK_NAMES[symbol],
+        name: STOCK_NAMES[symbol] ?? value?.name ?? symbol,
         price,
         previous_close: previousClose,
         change,
@@ -241,17 +241,15 @@ function TradePageContent() {
         const normalized = normalizeStocks(data);
 
         if (normalized.length > 0) {
-          setStocks((current) =>
-            current.map((fallback) => {
-              const updated = normalized.find(
-                (item) =>
-                  item.symbol ===
-                  fallback.symbol
-              );
-
-              return updated ?? fallback;
-            })
-          );
+          setStocks((current) => {
+            const bySymbol = new Map(
+              current.map((item) => [item.symbol, item])
+            );
+            normalized.forEach((item) =>
+              bySymbol.set(item.symbol, item)
+            );
+            return [...bySymbol.values()];
+          });
         }
       } catch (err) {
         console.log(

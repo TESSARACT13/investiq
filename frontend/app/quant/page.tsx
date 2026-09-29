@@ -34,6 +34,45 @@ type AIStock = Stock & {
 
 type Strategy = "Momentum" | "Mean Reversion" | "Trend Following";
 
+type StrategyStock = AIStock & {
+  quantScore: number;
+  quantSignal: "BUY" | "HOLD" | "SELL";
+};
+
+function evaluateStrategy(stock: AIStock, strategy: Strategy): StrategyStock {
+  const dailyMove = Math.max(-5, Math.min(5, stock.change_percent));
+  const adjustment = strategy === "Momentum"
+    ? dailyMove * 2
+    : strategy === "Mean Reversion"
+      ? -dailyMove * 1.5
+      : dailyMove;
+  const quantScore = Math.max(0, Math.min(100, Math.round(stock.score + adjustment)));
+
+  return {
+    ...stock,
+    quantScore,
+    quantSignal: quantScore >= 62 ? "BUY" : quantScore <= 39 ? "SELL" : "HOLD",
+  };
+}
+
+function suggestedShares(
+  price: number,
+  cash: number,
+  positionPercent: number,
+  riskPercent: number,
+  stopLossPercent: number,
+) {
+  if (price <= 0 || cash <= 0 || stopLossPercent <= 0) return 0;
+  const maxPositionValue = cash * (positionPercent / 100);
+  const maxRiskValue = cash * (riskPercent / 100);
+  const riskPerShare = price * (stopLossPercent / 100);
+  return Math.max(0, Math.min(
+    Math.floor(maxPositionValue / price),
+    Math.floor(maxRiskValue / riskPerShare),
+    Math.floor(cash / price),
+  ));
+}
+
 function normalizeStocks(data: unknown): AIStock[] {
   if (!data || typeof data !== "object") {
     return [];
@@ -170,11 +209,10 @@ export default function QuantPage() {
   const [selectedSymbol, setSelectedSymbol] =
     useState("DRREDDY");
 
-  const [running, setRunning] =
-    useState(false);
-
-  const [autoTrading, setAutoTrading] =
-    useState(false);
+  const [availableCash, setAvailableCash] = useState(100000);
+  const [strategyMessage, setStrategyMessage] = useState("");
+  const [autoTradeCandidate, setAutoTradeCandidate] = useState<StrategyStock | null>(null);
+  const [autoTradeMessage, setAutoTradeMessage] = useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -265,6 +303,22 @@ export default function QuantPage() {
   }
 
   useEffect(() => {
+    const updateCash = () => {
+      const stored = Number(window.localStorage.getItem("investiq_cash") ?? 100000);
+      setAvailableCash(Number.isFinite(stored) && stored >= 0 ? stored : 100000);
+    };
+
+    updateCash();
+    window.addEventListener("investiq-data-updated", updateCash);
+    window.addEventListener("storage", updateCash);
+
+    return () => {
+      window.removeEventListener("investiq-data-updated", updateCash);
+      window.removeEventListener("storage", updateCash);
+    };
+  }, []);
+
+  useEffect(() => {
     loadAIData();
 
     const interval = setInterval(
@@ -296,53 +350,76 @@ export default function QuantPage() {
     ) ??
     stocks[0];
 
-  const strategyAdjustment = !selectedStock
-    ? 0
-    : strategy === "Momentum"
-      ? selectedStock.change_percent * 2
-      : strategy === "Mean Reversion"
-        ? -selectedStock.change_percent
-        : selectedStock.change_percent * 1.5;
+  const selectedEvaluation = selectedStock
+    ? evaluateStrategy(selectedStock, strategy)
+    : null;
+  const quantScore = selectedEvaluation?.quantScore ?? 0;
+  const quantSignal = selectedEvaluation?.quantSignal ?? "HOLD";
 
-  const quantScore = selectedStock
-    ? Math.max(0, Math.min(100, Math.round(selectedStock.score + strategyAdjustment)))
-    : 0;
-
-  const quantSignal = !selectedStock
-    ? "HOLD"
-    : quantScore >= 70
-      ? "BUY"
-      : quantScore <= 40
-        ? "SELL"
-        : "HOLD";
+  const rankedStocks = useMemo(
+    () => stocks
+      .map((stock) => evaluateStrategy(stock, strategy))
+      .sort((a, b) => b.quantScore - a.quantScore),
+    [stocks, strategy]
+  );
+  const buyOpportunities = rankedStocks.filter((stock) =>
+    stock.quantSignal === "BUY" && suggestedShares(
+      stock.price,
+      availableCash,
+      positionPercent,
+      riskPercent,
+      stopLoss,
+    ) > 0
+  );
 
   // The score is a rules based signal, not a measured win probability.
   const confidence = selectedStock
     ? Math.min(65, selectedStock.confidence)
     : 0;
 
-  const portfolioCapital = 100000;
-  const maxPosition = portfolioCapital * (positionPercent / 100);
-  const maxRisk = portfolioCapital * (riskPercent / 100);
+  const maxPosition = availableCash * (positionPercent / 100);
+  const maxRisk = availableCash * (riskPercent / 100);
   const selectedPrice = selectedStock?.price ?? 0;
-  const riskPerShare = selectedPrice * (stopLoss / 100);
-  const riskBasedQuantity = riskPerShare > 0 ? Math.floor(maxRisk / riskPerShare) : 0;
-  const positionBasedQuantity = selectedPrice > 0 ? Math.floor(maxPosition / selectedPrice) : 0;
-  const suggestedQuantity = Math.max(0, Math.min(riskBasedQuantity, positionBasedQuantity));
+  const suggestedQuantity = suggestedShares(
+    selectedPrice,
+    availableCash,
+    positionPercent,
+    riskPercent,
+    stopLoss,
+  );
   const positionValue = suggestedQuantity * selectedPrice;
 
   function runStrategy() {
-    setRunning(true);
+    if (!selectedStock || !buyOpportunities.length) {
+      setStrategyMessage(`No BUY setup meets the ${strategy} rules right now.`);
+      return;
+    }
 
-    setTimeout(() => {
-      setRunning(false);
-    }, 1200);
+    const best = buyOpportunities[0];
+    setSelectedSymbol(best.symbol);
+    setStrategyMessage(`${best.symbol} is the strongest ${strategy} setup in the current feed. Review the score and risk-sized quantity below.`);
   }
 
-  function toggleAutoTrader() {
-    setAutoTrading(
-      (current) => !current
+  function findAutoTradeSetup() {
+    const candidate = buyOpportunities[0];
+    setAutoTradeCandidate(candidate ?? null);
+
+    if (!candidate) {
+      setAutoTradeMessage(`No BUY setup meets the ${strategy} rules right now.`);
+      return;
+    }
+
+    setSelectedSymbol(candidate.symbol);
+    const quantity = suggestedShares(
+      candidate.price,
+      availableCash,
+      positionPercent,
+      riskPercent,
+      stopLoss,
     );
+    setAutoTradeMessage(quantity > 0
+      ? `Found ${candidate.symbol}: ${quantity} shares fit your current position and risk limits. Review the paper order before submitting.`
+      : "The top setup was found, but your current cash and risk limits allow zero shares.");
   }
 
   return (
@@ -411,7 +488,7 @@ export default function QuantPage() {
             </div>
 
             <p className="mt-2 text-2xl font-bold">
-              {stocks.length || 100}
+              {stocks.length}
             </p>
 
             <p className="mt-1 text-xs text-slate-500">
@@ -610,15 +687,19 @@ export default function QuantPage() {
 
             <button
               onClick={runStrategy}
-              disabled={running}
+              disabled={loading || stocks.length === 0}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 px-5 py-3 font-semibold text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Play size={18} />
 
-              {running
-                ? "Running Quant Engine..."
-                : `Run ${strategy} Strategy`}
+              {`Find strongest ${strategy} setup`}
             </button>
+
+            {strategyMessage && (
+              <p className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/[0.06] p-3 text-sm text-blue-200">
+                {strategyMessage}
+              </p>
+            )}
           </section>
 
           {/* Risk Engine */}
@@ -779,7 +860,7 @@ export default function QuantPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
 
             <div className="rounded-xl bg-[#0b101b] p-5">
               <TrendingUp
@@ -858,6 +939,34 @@ export default function QuantPage() {
             </div>
           </div>
 
+          <div className="mt-5 flex flex-col gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">Suggested paper order</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {quantSignal === "BUY" && suggestedQuantity > 0
+                  ? `${suggestedQuantity} shares • ₹${positionValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })} estimated value • capped by your cash and risk settings`
+                  : "A BUY signal with at least one risk-sized share is required."}
+              </p>
+            </div>
+            {selectedStock && quantSignal === "BUY" && suggestedQuantity > 0 ? (
+              <Link
+                href={`/trade?symbol=${encodeURIComponent(selectedStock.symbol)}&side=BUY&quantity=${suggestedQuantity}`}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400"
+              >
+                Review buy order
+                <ArrowUpRight size={16} />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="shrink-0 rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-500"
+              >
+                No buy order available
+              </button>
+            )}
+          </div>
+
           <div className="mt-5 rounded-xl border border-white/10 bg-[#0b101b] p-5">
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -871,10 +980,12 @@ export default function QuantPage() {
                   {selectedStock?.explanation ?? "Connect the market data API to load a live analysis."}
                   {" "}
                   The {strategy.toLowerCase()} strategy
-                  adjusts the base AI score using the
-                  current price momentum. Risk controls
-                  then determine the maximum simulated
-                  position size.
+                  applies a bounded adjustment to today's
+                  price-move score. This is a one-session
+                  rules signal, not a guarantee or a
+                  long-term forecast. Risk controls then
+                  determine the maximum simulated position
+                  size.
                 </p>
               </div>
 
@@ -907,7 +1018,7 @@ export default function QuantPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
-              Highest Stocks with current market scores from the backend.
+              BUY candidates ranked by the selected strategy.
             </p>
           </div>
 
@@ -919,23 +1030,16 @@ export default function QuantPage() {
             <div className="py-10 text-center text-sm text-slate-400">
               Live scores are unavailable. Check the API connection, then refresh.
             </div>
-          ) : (
+          ) : buyOpportunities.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-400">
+                No BUY candidates match {strategy} right now. Try another strategy or refresh the feed.
+              </div>
+            ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              {stocks
-                .filter(
-                  (stock) =>
-                    stock.signal ===
-                    "BUY"
-                )
-                .sort(
-                  (a, b) =>
-                    b.score - a.score
-                )
-                .slice(0, 8)
-                .map((stock) => (
+              {buyOpportunities.slice(0, 8).map((stock) => (
                   <Link
                     key={stock.symbol}
-                    href={`/trade?symbol=${encodeURIComponent(stock.symbol)}&side=BUY`}
+                    href={`/trade?symbol=${encodeURIComponent(stock.symbol)}&side=BUY&quantity=${suggestedShares(stock.price, availableCash, positionPercent, riskPercent, stopLoss)}`}
                     onClick={() =>
                       setSelectedSymbol(
                         stock.symbol
@@ -956,11 +1060,11 @@ export default function QuantPage() {
                     <div className="mt-4 flex items-end justify-between">
                       <div>
                         <p className="text-xs text-slate-500">
-                          AI Score
+                          Strategy score
                         </p>
 
                         <p className="text-2xl font-bold">
-                          {stock.score}
+                          {stock.quantScore}
                         </p>
                       </div>
 
@@ -970,7 +1074,7 @@ export default function QuantPage() {
                         </p>
 
                         <p className="text-sm font-semibold text-emerald-400">
-                          +
+                          {stock.change_percent > 0 ? "+" : ""}
                           {stock.change_percent.toFixed(
                             2
                           )}
@@ -1002,58 +1106,31 @@ export default function QuantPage() {
               </div>
 
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                Simulate an automated paper-trading
-                workflow using AI signals, quantitative
-                strategy selection, and risk management.
+                Scan the live scores, select the top BUY setup for {strategy}, and prepare a risk-sized paper order. You review and submit it on the order ticket.
               </p>
             </div>
 
             <button
-              onClick={toggleAutoTrader}
-              className={`rounded-xl px-5 py-3 text-sm font-semibold transition ${
-                autoTrading
-                  ? "border border-red-400/30 bg-red-500/10 text-red-300"
-                  : "border border-violet-400/30 bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
-              }`}
+              onClick={findAutoTradeSetup}
+              disabled={loading || stocks.length === 0}
+              className="rounded-xl border border-violet-400/30 bg-violet-500/15 px-5 py-3 text-sm font-semibold text-violet-200 transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {autoTrading
-                ? "Stop Simulator"
-                : "Launch Simulator"}
+              Find best paper setup
             </button>
           </div>
 
-          {autoTrading && (
-            <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 md:grid-cols-3">
-
-              <div className="rounded-xl bg-black/20 p-4">
-                <p className="text-xs text-slate-500">
-                  Mode
-                </p>
-
-                <p className="mt-1 font-semibold text-violet-300">
-                  SIMULATION
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-black/20 p-4">
-                <p className="text-xs text-slate-500">
-                  Strategy
-                </p>
-
-                <p className="mt-1 font-semibold">
-                  {strategy}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-black/20 p-4">
-                <p className="text-xs text-slate-500">
-                  Execution
-                </p>
-
-                <p className="mt-1 font-semibold text-blue-300">
-                  PAPER ONLY
-                </p>
-              </div>
+          {autoTradeMessage && (
+            <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+              <p>{autoTradeMessage}</p>
+              {autoTradeCandidate && suggestedShares(autoTradeCandidate.price, availableCash, positionPercent, riskPercent, stopLoss) > 0 && (
+                <Link
+                  href={`/trade?symbol=${encodeURIComponent(autoTradeCandidate.symbol)}&side=BUY&quantity=${suggestedShares(autoTradeCandidate.price, availableCash, positionPercent, riskPercent, stopLoss)}`}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400"
+                >
+                  Review {autoTradeCandidate.symbol} order
+                  <ArrowUpRight size={16} />
+                </Link>
+              )}
             </div>
           )}
         </section>
