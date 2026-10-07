@@ -52,16 +52,14 @@ export default function OnboardingPage() {
       return;
     }
 
-    const { error: walletError } = await supabase
-      .from("wallets")
-      .upsert({
-        user_id: user.id,
-        balance: 100000,
-        initial_balance: 100000,
-      });
+    // The RPC can safely create a missing wallet for an existing account. The
+    // database function derives the user ID from the signed-in session.
+    const { data: wallet, error: walletError } = await supabase.rpc("ensure_paper_wallet");
 
-    if (walletError) {
-      setError(walletError.message);
+    if (walletError || !wallet?.length) {
+      setError(walletError
+        ? `We couldn't set up your paper wallet: ${walletError.message}. In Supabase, run the latest supabase/schema.sql, then try again.`
+        : "We couldn't confirm your paper wallet. In Supabase, run the latest supabase/schema.sql, then try again.");
       setLoading(false);
       return;
     }

@@ -4,6 +4,7 @@ import { API_URL, marketWebSocketUrl } from "@/lib/api";
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
   ArrowLeft,
   Star,
@@ -64,42 +65,48 @@ export default function WatchlistPage() {
 
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [watchlistError, setWatchlistError] = useState("");
+  const [watchlistLoaded, setWatchlistLoaded] = useState(false);
 
   useEffect(() => {
-    const saved =
-      localStorage.getItem(
-        "investiq_watchlist"
-      );
-
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-
-        if (Array.isArray(parsed)) {
-          setWatchlist(
-            parsed.map((x) =>
-              String(x).toUpperCase()
-            )
-          );
+    let active = true;
+    const loadWatchlist = async () => {
+      if (isSupabaseConfigured) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data, error } = await supabase.from("watchlist_items").select("symbol").eq("user_id", user.id).order("created_at");
+          if (!active) return;
+          if (error) {
+            setWatchlistError(`${error.message} Run supabase/schema.sql to enable saved watchlists.`);
+            setWatchlistLoaded(true);
+            return;
+          }
+          setWatchlist((data ?? []).map((item) => item.symbol));
+          setWatchlistLoaded(true);
+          return;
         }
-      } catch {
-        setWatchlist([]);
       }
-    } else {
-      setWatchlist([
-        "RELIANCE",
-        "TCS",
-        "INFY",
-      ]);
-    }
+
+      try {
+        const saved = localStorage.getItem("investiq_watchlist");
+        const parsed: unknown = JSON.parse(saved ?? '["RELIANCE","TCS","INFY"]');
+        if (Array.isArray(parsed)) setWatchlist(parsed.map((item) => String(item).toUpperCase()));
+      } catch {
+        setWatchlist(["RELIANCE", "TCS", "INFY"]);
+      }
+      setWatchlistLoaded(true);
+    };
+    void loadWatchlist();
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
+    if (isSupabaseConfigured || !watchlistLoaded) return;
     localStorage.setItem(
       "investiq_watchlist",
       JSON.stringify(watchlist)
     );
-  }, [watchlist]);
+  }, [watchlist, watchlistLoaded]);
 
   useEffect(() => {
     async function loadMarket() {
@@ -185,24 +192,38 @@ export default function WatchlistPage() {
     return () => ws.close();
   }, []);
 
-  const addStock = (symbol: string) => {
-    if (!watchlist.includes(symbol)) {
-      setWatchlist([
-        ...watchlist,
-        symbol,
-      ]);
+  const addStock = async (symbol: string) => {
+    const cleanSymbol = symbol.toUpperCase();
+    if (isSupabaseConfigured) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase.from("watchlist_items").insert({ user_id: user.id, symbol: cleanSymbol });
+        if (error) {
+          setWatchlistError(error.message);
+          return;
+        }
+      }
     }
+    setWatchlist((current) => current.includes(cleanSymbol) ? current : [...current, cleanSymbol]);
+    setWatchlistError("");
 
     setSearch("");
     setShowAdd(false);
   };
 
-  const removeStock = (symbol: string) => {
-    setWatchlist(
-      watchlist.filter(
-        (item) => item !== symbol
-      )
-    );
+  const removeStock = async (symbol: string) => {
+    if (isSupabaseConfigured) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase.from("watchlist_items").delete().eq("user_id", user.id).eq("symbol", symbol);
+        if (error) {
+          setWatchlistError(error.message);
+          return;
+        }
+      }
+    }
+    setWatchlist((current) => current.filter((item) => item !== symbol));
+    setWatchlistError("");
   };
 
   const availableStocks = Object.keys(
@@ -262,6 +283,7 @@ export default function WatchlistPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-5 py-8">
+        {watchlistError && <p role="alert" className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{watchlistError}</p>}
         {showAdd && (
           <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5">
             <div className="mb-4 flex items-center justify-between">

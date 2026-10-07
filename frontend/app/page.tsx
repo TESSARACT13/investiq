@@ -46,10 +46,17 @@ export default function Home() {
             </a>
 
             <a
-              href="/dashboard"
+              href="/login"
+              className="hidden rounded-xl px-4 py-2 text-sm text-gray-400 transition hover:bg-white/5 hover:text-white sm:block"
+            >
+              Sign in
+            </a>
+
+            <a
+              href="/signup"
               className="rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-gray-200"
             >
-              Dashboard
+              Create account
             </a>
 
           </div>
@@ -68,7 +75,7 @@ export default function Home() {
 
             <div className="mx-auto mb-6 flex w-fit items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-xs font-medium text-blue-300">
               <Zap size={14} />
-              Real-Time AI Investment Intelligence
+                A thoughtful home for your investing life
             </div>
 
             <h2 className="text-5xl font-bold leading-tight tracking-tight sm:text-7xl">
@@ -79,9 +86,8 @@ export default function Home() {
             </h2>
 
             <p className="mx-auto mt-7 max-w-2xl text-base leading-8 text-gray-400 sm:text-lg">
-              INVESTIQ combines real-time market data, AI-powered
-              investment intelligence and quantitative trading tools
-              into one modern paper-trading platform.
+              Follow Indian stocks, understand your paper portfolio, and explore
+              ideas with research tools that explain what they’re showing you.
             </p>
 
             <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
@@ -90,7 +96,7 @@ export default function Home() {
                 href="/dashboard"
                 className="flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-7 py-3.5 font-semibold text-white transition hover:bg-blue-400"
               >
-                Enter INVESTIQ
+                Open your dashboard
                 <ArrowRight size={18} />
               </a>
 

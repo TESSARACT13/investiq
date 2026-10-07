@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
+import { AppFrame } from "@/components/app-frame";
 
 export const metadata: Metadata = {
   title: "INVESTIQ | Market Intelligence",
@@ -9,7 +11,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full">
+        <Suspense fallback={<div className="min-h-screen bg-[#f4f6f3]" />}>
+          <AppFrame>{children}</AppFrame>
+        </Suspense>
+      </body>
     </html>
   );
 }

@@ -31,6 +31,22 @@ Requirements: Node.js 20+, Python 3.11+, and an Upstox access token for live quo
 
 `NEXT_PUBLIC_API_URL` is the browser-facing FastAPI base URL. In production it must be the public HTTPS URL for the API. Set `CORS_ORIGINS` on the backend to include the frontend's exact deployed origin. Keep Upstox credentials on the backend; never put them in a `NEXT_PUBLIC_` variable.
 
+## Supabase accounts and saved data
+
+1. In your Supabase project, open **Project Settings → API** (or **Connect**) and copy the Project URL and the **publishable** key. A legacy `anon` public key also works. Do not use a `secret` or `service_role` key in the browser.
+2. Add these values to `frontend/.env.local`, preserving the existing `NEXT_PUBLIC_API_URL` setting:
+
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+   ```
+
+3. Open the Supabase **SQL Editor**, paste and run [`supabase/schema.sql`](supabase/schema.sql). It creates the profile, paper wallet, holdings, order history, watchlist, and SIP-plan tables; turns on per-user row-level security; and installs the atomic paper-order function.
+4. Under **Authentication → URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/verify` and `http://localhost:3000/login` to the allowed redirect URLs. Add the deployed app URL there when the public site is ready.
+5. Restart the frontend after editing `.env.local`, then visit `/signup` to create an account. Sign-up follows your Supabase email-confirmation setting.
+
+Before the environment variables and SQL are configured, the app remains in local demo mode. Demo trades and SIP plans stay in that browser; signed-in data is stored per user in Supabase. SIP plans are trackers only and do not automatically debit money or place broker orders. New stock symbols are added to the curated NSE equity universe where Upstox has a matching instrument.
+
 ## Production build
 
 ```sh

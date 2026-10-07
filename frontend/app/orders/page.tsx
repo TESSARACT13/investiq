@@ -9,6 +9,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 type Order = {
   id?: string;
@@ -32,9 +33,38 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<
     "ALL" | "BUY" | "SELL"
   >("ALL");
+  const [loadError, setLoadError] = useState("");
 
-  const loadOrders = () => {
+  const loadOrders = async () => {
     if (typeof window === "undefined") return;
+
+    setLoadError("");
+    if (isSupabaseConfigured) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from("orders")
+          .select("id,symbol,order_type,quantity,price,total_value,status,created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+        if (error) {
+          setOrders([]);
+          setLoadError(`${error.message} Run supabase/schema.sql if you have not set up the account tables yet.`);
+          return;
+        }
+        setOrders((data ?? []).map((trade) => ({
+          id: trade.id,
+          symbol: trade.symbol,
+          side: trade.order_type as "BUY" | "SELL",
+          quantity: Number(trade.quantity),
+          price: Number(trade.price),
+          total: Number(trade.total_value),
+          status: trade.status,
+          timestamp: trade.created_at,
+        })));
+        return;
+      }
+    }
 
     try {
       const savedTrades =
@@ -119,22 +149,16 @@ export default function OrdersPage() {
   };
 
   useEffect(() => {
-    loadOrders();
+    void loadOrders();
 
-    const handleStorage = () => {
-      loadOrders();
-    };
+    const handleRefresh = () => { void loadOrders(); };
 
-    window.addEventListener(
-      "storage",
-      handleStorage
-    );
+    window.addEventListener("storage", handleRefresh);
+    window.addEventListener("investiq-data-updated", handleRefresh);
 
     return () => {
-      window.removeEventListener(
-        "storage",
-        handleStorage
-      );
+      window.removeEventListener("storage", handleRefresh);
+      window.removeEventListener("investiq-data-updated", handleRefresh);
     };
   }, []);
 
@@ -206,7 +230,7 @@ export default function OrdersPage() {
           </div>
 
           <button
-            onClick={loadOrders}
+            onClick={() => void loadOrders()}
             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-gray-300 transition hover:bg-white/[0.08]"
           >
             <RefreshCw size={15} />
@@ -216,6 +240,7 @@ export default function OrdersPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-5 py-8">
+        {loadError && <p role="alert" className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{loadError}</p>}
         {/* SUMMARY */}
         <div className="mb-8 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">

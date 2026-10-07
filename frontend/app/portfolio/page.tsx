@@ -4,6 +4,7 @@ import { API_URL, marketWebSocketUrl } from "@/lib/api";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -71,48 +72,54 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    const savedCash = localStorage.getItem("investiq_cash");
-    const savedHoldings = localStorage.getItem("investiq_holdings");
-
-    if (savedCash) {
-      setCash(Number(savedCash));
-    }
-
-    if (savedHoldings) {
-        try {
-          const parsed = JSON.parse(savedHoldings);
-
-          if (Array.isArray(parsed)) {
-            const normalized = parsed
-              .map((holding: any) => ({
-                symbol: String(
-                  holding.symbol ?? holding.stockSymbol ?? ""
-                ).toUpperCase(),
-                quantity: Number(
-                  holding.quantity ?? holding.qty ?? 0
-                ),
-                avgPrice: Number(
-                  holding.avgPrice ??
-                    holding.averagePrice ??
-                    holding.avg_price ??
-                    0
-                ),
-              }))
-              .filter(
-                (holding) =>
-                  holding.symbol &&
-                  holding.quantity > 0
-              );
-
-            setHoldings(normalized);
-          } else {
-            setHoldings([]);
+    let active = true;
+    const loadPortfolio = async () => {
+      if (isSupabaseConfigured) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const [walletResult, holdingResult] = await Promise.all([
+            supabase.from("wallets").select("balance").eq("user_id", user.id).maybeSingle(),
+            supabase.from("holdings").select("symbol,quantity,average_price").eq("user_id", user.id),
+          ]);
+          if (!active) return;
+          if (walletResult.data) setCash(Number(walletResult.data.balance));
+          if (holdingResult.data) {
+            setHoldings(holdingResult.data.map((holding) => ({
+              symbol: holding.symbol,
+              quantity: Number(holding.quantity),
+              avgPrice: Number(holding.average_price),
+            })));
           }
-        } catch {
-          setHoldings([]);
+          return;
         }
       }
+
+      const savedCash = localStorage.getItem("investiq_cash");
+      const savedHoldings = localStorage.getItem("investiq_holdings");
+      const cashValue = Number(savedCash ?? 100000);
+      if (Number.isFinite(cashValue)) setCash(cashValue);
+      try {
+        const parsed: unknown = JSON.parse(savedHoldings ?? "[]");
+        if (Array.isArray(parsed)) {
+          setHoldings(parsed.map((holding: any) => ({
+            symbol: String(holding.symbol ?? holding.stockSymbol ?? "").toUpperCase(),
+            quantity: Number(holding.quantity ?? holding.qty ?? 0),
+            avgPrice: Number(holding.avgPrice ?? holding.averagePrice ?? holding.avg_price ?? 0),
+          })).filter((holding) => holding.symbol && holding.quantity > 0));
+        }
+      } catch {
+        setHoldings([]);
+      }
+    };
+    void loadPortfolio();
+    const refresh = () => void loadPortfolio();
+    window.addEventListener("storage", refresh);
+    window.addEventListener("investiq-data-updated", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("investiq-data-updated", refresh);
+    };
   }, []);
 
   useEffect(() => {
