@@ -1486,20 +1486,20 @@ async def market_overview():
 
         await update_latest_from_rest()
 
-    apply_fallback_prices()
-
+    # Overview feeds the UI and trade flows. Exclude hard-coded preview prices
+    # so an unavailable market quote is never presented as a real price.
+    available_prices = {
+        symbol: quote
+        for symbol, quote in latest_prices.items()
+        if isinstance(quote, dict)
+        and float(quote.get("price") or 0) > 0
+        and (quote.get("timestamp") or quote.get("source") in {"upstox", "upstox_websocket"})
+    }
     return {
         "status": "success",
-        "source": (
-            "upstox"
-            if len(latest_prices)
-            > len(FALLBACK_PRICES)
-            else "fallback"
-        ),
-        "count": len(
-            latest_prices
-        ),
-        "stocks": latest_prices,
+        "source": "upstox" if available_prices else "unavailable",
+        "count": len(available_prices),
+        "stocks": available_prices,
     }
 
 

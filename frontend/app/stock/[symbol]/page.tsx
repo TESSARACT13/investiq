@@ -540,13 +540,9 @@ export default function StockDetailsPage() {
         );
 
         if (!cancelled) {
-          const fallback = FALLBACK_STOCKS[symbol];
-          if (fallback) {
-            setStock(fallback);
-            setQuoteStatus("sample");
-          } else {
-            setQuoteStatus("unavailable");
-          }
+          // Never replace a missing market quote with a stale demo price.
+          setStock(null);
+          setQuoteStatus("unavailable");
           setQuoteMessage(error instanceof Error ? error.message : "Current price is unavailable.");
         }
       }
