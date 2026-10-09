@@ -2,10 +2,25 @@ import asyncio
 import gzip
 import json
 import os
+import sys
+import sysconfig
 import threading
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Set
+from importlib.util import module_from_spec, spec_from_file_location
+
+# The Upstox SDK declares a legacy PyPI package named `uuid`. Vercel vendors
+# third-party packages ahead of the standard library, so preload Python's
+# built-in uuid module before importing httpx or the SDK.
+_stdlib_uuid = spec_from_file_location(
+    "uuid",
+    os.path.join(sysconfig.get_path("stdlib"), "uuid.py"),
+)
+if _stdlib_uuid and _stdlib_uuid.loader:
+    _uuid_module = module_from_spec(_stdlib_uuid)
+    sys.modules["uuid"] = _uuid_module
+    _stdlib_uuid.loader.exec_module(_uuid_module)
 
 import httpx
 import upstox_client
