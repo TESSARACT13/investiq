@@ -17,7 +17,6 @@ type SipPlan = {
 };
 
 const DEMO_KEY = "investiq_sip_plans";
-const SIP_STOCKS = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "ITC", "BHARTIARTL", "TITAN", "LT"];
 const currency = (amount: number) => `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 const planSymbols = (value: string) => value.startsWith("BASKET|") ? value.slice(7).split(",").map((part) => part.split(":")[0]).filter(Boolean) : [value];
 
@@ -38,7 +37,7 @@ export default function SipsPage() {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(["RELIANCE", "TCS"]);
-  const [sipSymbols, setSipSymbols] = useState<string[]>(SIP_STOCKS);
+  const [sipSymbols, setSipSymbols] = useState<string[]>([]);
   const [stockSearch, setStockSearch] = useState("");
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [amount, setAmount] = useState("2500");
@@ -77,14 +76,17 @@ export default function SipsPage() {
 
   useEffect(() => { void loadPlans(); }, []);
   useEffect(() => {
-    fetch(`${API_URL}/market/stocks`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => {
-      if (Array.isArray(data?.stocks)) setSipSymbols(Array.from(new Set<string>(data.stocks.map((ticker: unknown) => String(ticker).toUpperCase()))));
-    }).catch(() => setSipSymbols(SIP_STOCKS));
     fetch(`${API_URL}/market/overview`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => {
       const raw = data?.stocks;
-      const entries = Array.isArray(raw) ? raw.map((row: any) => [row.symbol, row.price]) : Object.entries(raw || {}).map(([key, row]: [string, any]) => [key, row?.price]);
-      setPrices(Object.fromEntries(entries.map(([key, price]: any) => [String(key), Number(price || 0)])));
-    }).catch(() => setPrices({}));
+      const entries: [string, number][] = Array.isArray(raw)
+        ? raw.map((row: any) => [String(row.symbol).toUpperCase(), Number(row.price || 0)])
+        : Object.entries(raw || {}).map(([key, row]: [string, any]) => [key.toUpperCase(), Number(row?.price || 0)]);
+      const availablePrices = Object.fromEntries(entries.filter(([, price]) => Number.isFinite(price) && price > 0));
+      const availableSymbols = Object.keys(availablePrices);
+      setPrices(availablePrices);
+      setSipSymbols(availableSymbols);
+      setSelectedSymbols((current) => current.filter((symbol) => availableSymbols.includes(symbol)));
+    }).catch(() => { setPrices({}); setSipSymbols([]); setSelectedSymbols([]); });
   }, []);
 
   const monthlyAmount = useMemo(

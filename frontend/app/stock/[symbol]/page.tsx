@@ -20,14 +20,11 @@ import {
   LineChart,
   Loader2,
   Minus,
-  Newspaper,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
   TrendingDown,
   TrendingUp,
   Wallet,
-  Radio,
 } from "lucide-react";
 
 type Timeframe =
@@ -84,6 +81,8 @@ type StockData = {
   change_percent: number;
   volume?: number;
   market_status?: string;
+  timestamp?: string | number | null;
+  source?: string;
 };
 
 type AIData = {
@@ -163,6 +162,10 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatOptionalPrice(value: number) {
+  return Number.isFinite(value) && value > 0 ? formatPrice(value) : "—";
 }
 
 function formatNumber(value: number) {
@@ -346,95 +349,6 @@ function normalizeStock(
   };
 }
 
-function getStockFromOverview(
-  data: unknown,
-  symbol: string
-): StockData | null {
-  if (
-    !data ||
-    typeof data !== "object"
-  ) {
-    return null;
-  }
-
-  const response =
-    data as Record<
-      string,
-      unknown
-    >;
-
-  const rawStocks =
-    response.stocks;
-
-  if (
-    rawStocks &&
-    typeof rawStocks ===
-      "object" &&
-    !Array.isArray(rawStocks)
-  ) {
-    const stocks =
-      rawStocks as Record<
-        string,
-        unknown
-      >;
-
-    const directStock =
-      stocks[symbol] ??
-      stocks[
-        symbol.toUpperCase()
-      ] ??
-      stocks[
-        symbol.toLowerCase()
-      ];
-
-    if (directStock) {
-      return normalizeStock(
-        directStock,
-        symbol
-      );
-    }
-  }
-
-  if (Array.isArray(rawStocks)) {
-    const found =
-      rawStocks.find(
-        (item: unknown) => {
-          if (
-            !item ||
-            typeof item !==
-              "object"
-          ) {
-            return false;
-          }
-
-          const stock =
-            item as Record<
-              string,
-              unknown
-            >;
-
-          return (
-            String(
-              stock.symbol ??
-                stock.tradingsymbol ??
-                ""
-            ).toUpperCase() ===
-            symbol
-          );
-        }
-      );
-
-    if (found) {
-      return normalizeStock(
-        found,
-        symbol
-      );
-    }
-  }
-
-  return null;
-}
-
 function normalizeCandles(
   rawCandles: any[]
 ): Candle[] {
@@ -483,7 +397,8 @@ function normalizeCandles(
         Number.isFinite(
           item.close
         )
-    );
+    )
+    .sort((left, right) => toDate(left.time).getTime() - toDate(right.time).getTime());
 }
 
 export default function StockDetailsPage() {
@@ -536,6 +451,8 @@ export default function StockDetailsPage() {
 
   const [marketConnected, setMarketConnected] =
     useState(false);
+  const [quoteStatus, setQuoteStatus] = useState<"loading" | "live" | "sample" | "unavailable">("loading");
+  const [quoteMessage, setQuoteMessage] = useState("");
 
   const [quantity, setQuantity] =
     useState(1);
@@ -597,32 +514,24 @@ export default function StockDetailsPage() {
       try {
         const response =
           await fetch(
-            `${API_URL}/market/overview`,
+            `${API_URL}/market/quote/${encodeURIComponent(symbol)}`,
             {
               cache: "no-store",
             }
           );
 
         if (!response.ok) {
-          throw new Error(
-            "Market overview request failed"
-          );
+          const body = await response.json().catch(() => ({}));
+          throw new Error(String(body?.detail || "Current price is unavailable."));
         }
 
         const data =
           await response.json();
 
-        const found =
-          getStockFromOverview(
-            data,
-            symbol
-          );
-
-        if (
-          found &&
-          !cancelled
-        ) {
-          setStock(found);
+        if (!cancelled) {
+          setStock(normalizeStock(data, symbol));
+          setQuoteStatus(data?.source === "sample" ? "sample" : "live");
+          setQuoteMessage("");
         }
       } catch (error) {
         console.error(
@@ -630,17 +539,15 @@ export default function StockDetailsPage() {
           error
         );
 
-        if (
-          !cancelled &&
-          FALLBACK_STOCKS[
-            symbol
-          ]
-        ) {
-          setStock(
-            FALLBACK_STOCKS[
-              symbol
-            ]
-          );
+        if (!cancelled) {
+          const fallback = FALLBACK_STOCKS[symbol];
+          if (fallback) {
+            setStock(fallback);
+            setQuoteStatus("sample");
+          } else {
+            setQuoteStatus("unavailable");
+          }
+          setQuoteMessage(error instanceof Error ? error.message : "Current price is unavailable.");
         }
       }
     }
@@ -981,9 +888,7 @@ export default function StockDetailsPage() {
         marketWebSocketUrl()
       );
 
-    websocket.onopen = () => {
-      setMarketConnected(true);
-    };
+    websocket.onopen = () => setMarketConnected(false);
 
     websocket.onmessage = (
       event
@@ -1013,6 +918,7 @@ export default function StockDetailsPage() {
           );
 
         if (!incoming) return;
+        const hasLiveTimestamp = Boolean(incoming?.timestamp ?? incoming?.ltt);
 
         const updatedPrice =
           Number(
@@ -1076,9 +982,17 @@ export default function StockDetailsPage() {
                       previousClose) *
                     100
                   : fallback.change_percent,
+              timestamp: incoming?.timestamp ?? incoming?.ltt ?? fallback.timestamp,
+              source: hasLiveTimestamp ? "upstox" : fallback.source,
             };
           }
         );
+
+        if (hasLiveTimestamp) {
+          setMarketConnected(true);
+          setQuoteStatus("live");
+          setQuoteMessage("");
+        }
 
         updateLiveCandle(
           updatedPrice,
@@ -1145,7 +1059,7 @@ export default function StockDetailsPage() {
     try {
       const response =
         await fetch(
-          `${API_URL}/market/overview`,
+          `${API_URL}/market/quote/${encodeURIComponent(symbol)}`,
           {
             cache: "no-store",
           }
@@ -1155,15 +1069,13 @@ export default function StockDetailsPage() {
         const data =
           await response.json();
 
-        const found =
-          getStockFromOverview(
-            data,
-            symbol
-          );
-
-        if (found) {
-          setStock(found);
-        }
+        setStock(normalizeStock(data, symbol));
+        setQuoteStatus(data?.source === "sample" ? "sample" : "live");
+        setQuoteMessage("");
+      } else {
+        const body = await response.json().catch(() => ({}));
+        setQuoteStatus("unavailable");
+        setQuoteMessage(String(body?.detail || "Current price is unavailable."));
       }
     } catch (error) {
       console.error(
@@ -1207,7 +1119,7 @@ export default function StockDetailsPage() {
 
   if (!stock) {
     return (
-      <main className="min-h-screen bg-[#05070d] text-white">
+      <main className="stock-detail-page min-h-screen bg-[#05070d] text-white">
         <div className="flex min-h-screen items-center justify-center">
           <div className="text-center">
             <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-white/10 border-t-blue-400" />
@@ -1221,6 +1133,7 @@ export default function StockDetailsPage() {
     );
   }
 
+  const hasPrice = stock.price > 0;
   const isPositive =
     stock.change >= 0;
 
@@ -1230,7 +1143,7 @@ export default function StockDetailsPage() {
     timeframe === "30s";
 
   return (
-    <main className="min-h-screen bg-[#05070d] text-white">
+    <main className="stock-detail-page min-h-screen bg-[#05070d] text-white">
       <div className="mx-auto max-w-[1500px] px-4 pb-12 pt-5 sm:px-6 lg:px-8">
         {/* Header */}
 
@@ -1277,9 +1190,15 @@ export default function StockDetailsPage() {
                   }`}
                 />
 
-                {marketConnected
-                  ? "LIVE MARKET"
-                  : "LAST RECORDED"}
+                {quoteStatus === "live" && marketConnected
+                  ? "LIVE PRICE"
+                  : quoteStatus === "live"
+                    ? "LAST QUOTE"
+                    : quoteStatus === "sample"
+                      ? "SAMPLE PRICE"
+                      : quoteStatus === "unavailable"
+                        ? "PRICE UNAVAILABLE"
+                        : "CHECKING PRICE"}
               </div>
             </div>
           </div>
@@ -1320,12 +1239,11 @@ export default function StockDetailsPage() {
             <div>
               <div className="flex flex-wrap items-end gap-4">
                 <span className="text-4xl font-bold tracking-tight sm:text-5xl">
-                  {stock.price >
-                  0
+                  {hasPrice
                     ? formatPrice(
                         stock.price
                       )
-                    : "Loading price..."}
+                    : quoteStatus === "loading" ? "Loading price…" : "Price unavailable"}
                 </span>
 
                 <span
@@ -1335,54 +1253,41 @@ export default function StockDetailsPage() {
                       : "text-red-400"
                   }`}
                 >
-                  {isPositive ? (
+                  {hasPrice && isPositive ? (
                     <ArrowUp
                       size={17}
                     />
-                  ) : (
+                  ) : hasPrice ? (
                     <ArrowDown
                       size={17}
                     />
-                  )}
+                  ) : null}
 
-                  {isPositive
-                    ? "+"
-                    : ""}
-                  {formatPrice(
-                    stock.change
-                  )}{" "}
-                  (
-                  {isPositive
-                    ? "+"
-                    : ""}
-                  {stock.change_percent.toFixed(
-                    2
-                  )}
-                  %)
+                  {hasPrice ? <>
+                    {isPositive ? "+" : ""}{formatPrice(stock.change)} ({isPositive ? "+" : ""}{stock.change_percent.toFixed(2)}%)
+                  </> : null}
                 </span>
               </div>
 
+              {!hasPrice && quoteStatus === "unavailable" && (
+                <p className="mt-2 max-w-2xl text-sm text-slate-500">{quoteMessage || "No current quote is available for this stock."}</p>
+              )}
+
               <p className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                 <Clock3 size={13} />
-                Previous close{" "}
-                {formatPrice(
-                  stock.previous_close
-                )}
+                Previous close {stock.previous_close > 0 ? formatPrice(stock.previous_close) : "—"}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MetricCard
                 label="Open"
-                value={formatPrice(
-                  candles[0]?.open ??
-                    stock.price
-                )}
+                value={formatOptionalPrice(candles[0]?.open ?? (hasPrice ? stock.price : 0))}
               />
 
               <MetricCard
                 label="High"
-                value={formatPrice(
+                value={formatOptionalPrice(
                   candles.length
                     ? Math.max(
                         ...candles.map(
@@ -1390,13 +1295,13 @@ export default function StockDetailsPage() {
                             c.high
                         )
                       )
-                    : stock.price
+                    : hasPrice ? stock.price : 0
                 )}
               />
 
               <MetricCard
                 label="Low"
-                value={formatPrice(
+                value={formatOptionalPrice(
                   candles.length
                     ? Math.min(
                         ...candles.map(
@@ -1404,7 +1309,7 @@ export default function StockDetailsPage() {
                             c.low
                         )
                       )
-                    : stock.price
+                    : hasPrice ? stock.price : 0
                 )}
               />
 
@@ -1494,7 +1399,7 @@ export default function StockDetailsPage() {
                   </button>
 
                   {showChartMenu && (
-                    <div className="absolute right-0 top-11 z-30 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#111520] p-1 shadow-2xl">
+                    <div className="absolute right-0 top-11 z-30 w-44 overflow-hidden rounded-xl border border-[#e2e9e2] bg-white p-1 shadow-xl">
                       <ChartTypeButton
                         active={
                           chartType ===
@@ -1963,12 +1868,13 @@ export default function StockDetailsPage() {
               </div>
 
               <button
+                disabled={!hasPrice}
                 onClick={() =>
                   router.push(
                     `/trade?symbol=${symbol}&side=${orderSide}`
                   )
                 }
-                className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold transition ${
+                className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${
                   orderSide ===
                   "BUY"
                     ? "bg-emerald-500 text-white hover:bg-emerald-400"
@@ -2064,8 +1970,8 @@ function ChartTypeButton({
       onClick={onClick}
       className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition ${
         active
-          ? "bg-blue-500/10 text-blue-400"
-          : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+          ? "bg-[#eaf2eb] text-[#39734f]"
+          : "text-[#66746a] hover:bg-[#f4f7f3] hover:text-[#24342a]"
       }`}
     >
       {icon}
@@ -2094,6 +2000,7 @@ function InteractiveTradingChart({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [crosshairVisible, setCrosshairVisible] = useState(false);
+  const [pointerPrice, setPointerPrice] = useState<number | null>(null);
 
   const width = 1000;
   const height = 460;
@@ -2112,8 +2019,8 @@ function InteractiveTradingChart({
   */
   const chartCandles = useMemo(() => {
     if (!candles.length) return [];
-    return candles.slice(-60);
-  }, [candles]);
+    return timeframe === "1d" ? candles.slice(-90) : candles.slice(-60);
+  }, [candles, timeframe]);
 
   const prices = useMemo(() => {
     const values: number[] = [];
@@ -2198,9 +2105,9 @@ function InteractiveTradingChart({
           : Math.round(
               (index / (count - 1)) * (chartCandles.length - 1)
             );
-      return { index: candleIndex, x: getX(candleIndex), label: String(candleIndex + 1) };
+      return { index: candleIndex, x: getX(candleIndex), label: formatXAxisTime(chartCandles[candleIndex].time, timeframe) };
     });
-  }, [chartCandles.length, getX]);
+  }, [chartCandles, getX, timeframe]);
 
   function getNearestIndex(clientX: number) {
     const svg = svgRef.current;
@@ -2226,6 +2133,11 @@ function InteractiveTradingChart({
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
     const index = getNearestIndex(event.clientX);
     if (index === null) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const svgY = ((event.clientY - rect.top) / rect.height) * height;
+    const clampedY = Math.max(padding.top, Math.min(padding.top + chartHeight, svgY));
+    const priceRatio = 1 - (clampedY - padding.top) / chartHeight;
+    setPointerPrice(chartMin + priceRatio * (chartMax - chartMin));
     setHoverIndex(index);
     setCrosshairVisible(true);
   }
@@ -2233,6 +2145,7 @@ function InteractiveTradingChart({
   function handlePointerLeave() {
     setCrosshairVisible(false);
     setHoverIndex(null);
+    setPointerPrice(null);
   }
 
   if (!chartCandles.length) {
@@ -2257,7 +2170,7 @@ function InteractiveTradingChart({
     hoverIndex === null ? chartCandles.length - 1 : hoverIndex;
   const hoveredCandle = chartCandles[activeIndex];
   const hoverX = getX(activeIndex);
-  const hoverY = getY(hoveredCandle.close);
+  const hoverY = getY(pointerPrice ?? hoveredCandle.close);
 
   return (
     <div className="relative w-full">
@@ -2269,7 +2182,7 @@ function InteractiveTradingChart({
       </div>
 
       {crosshairVisible && hoveredCandle && (
-        <div className="absolute right-5 top-4 z-10 rounded-xl border border-white/10 bg-[#10141e]/95 px-4 py-3 text-xs shadow-xl backdrop-blur">
+        <div className="absolute right-5 top-4 z-10 rounded-xl border border-[#e2e9e2] bg-white/95 px-4 py-3 text-xs shadow-lg backdrop-blur">
           <p className="mb-2 border-b border-white/10 pb-2 text-[10px] font-medium text-slate-400">{formatFullDate(hoveredCandle.time)}</p>
           <div className="grid grid-cols-2 gap-x-5 gap-y-1">
             <span className="text-slate-500">Open</span>
@@ -2280,6 +2193,8 @@ function InteractiveTradingChart({
             <span className="text-right font-medium text-red-400">{formatPrice(hoveredCandle.low)}</span>
             <span className="text-slate-500">Close</span>
             <span className="text-right font-semibold text-blue-300">{formatPrice(hoveredCandle.close)}</span>
+            <span className="text-slate-500">Volume</span>
+            <span className="text-right font-medium">{formatNumber(hoveredCandle.volume ?? 0)}</span>
           </div>
         </div>
       )}
@@ -2290,6 +2205,15 @@ function InteractiveTradingChart({
           viewBox={`0 0 ${width} ${height}`}
           className="h-auto w-full select-none"
           onPointerMove={handlePointerMove}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            handlePointerMove(event);
+          }}
+          onPointerUp={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
           onPointerLeave={handlePointerLeave}
           style={{ touchAction: 'none', cursor: 'crosshair' }}
         >
@@ -2300,7 +2224,7 @@ function InteractiveTradingChart({
                 x2={width - padding.right}
                 y1={tick.y}
                 y2={tick.y}
-                stroke="#1e293b"
+                stroke="#e1e8e1"
                 strokeWidth="1"
               />
               <text
@@ -2328,14 +2252,14 @@ function InteractiveTradingChart({
           ))}
 
           {chartType === 'area' && areaPath && (
-            <path d={areaPath} fill="#3b82f6" opacity="0.10" />
+            <path d={areaPath} fill="#39734f" opacity="0.10" />
           )}
 
           {chartType === 'line' || chartType === 'area' ? (
             <path
               d={closePath}
               fill="none"
-              stroke="#60a5fa"
+              stroke="#39734f"
               strokeWidth="2.2"
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -2358,7 +2282,7 @@ function InteractiveTradingChart({
                     x2={x}
                     y1={highY}
                     y2={lowY}
-                    stroke={bullish ? '#34d399' : '#f87171'}
+                    stroke={bullish ? '#39734f' : '#a95548'}
                     strokeWidth="1.2"
                   />
                   <rect
@@ -2367,7 +2291,7 @@ function InteractiveTradingChart({
                     width={candleWidth}
                     height={bodyHeight}
                     rx="1"
-                    fill={bullish ? '#34d399' : '#f87171'}
+                    fill={bullish ? '#39734f' : '#a95548'}
                     opacity="0.9"
                   />
                 </g>
@@ -2401,8 +2325,8 @@ function InteractiveTradingChart({
                 cx={hoverX}
                 cy={hoverY}
                 r="4"
-                fill="#60a5fa"
-                stroke="#dbeafe"
+                fill="#39734f"
+                stroke="#ffffff"
                 strokeWidth="2"
               />
               <rect
@@ -2411,17 +2335,17 @@ function InteractiveTradingChart({
                 width="68"
                 height="22"
                 rx="5"
-                fill="#1e293b"
+                fill="#39734f"
               />
               <text
                 x={width - padding.right + 39}
                 y={hoverY + 4}
                 textAnchor="middle"
-                fill="#e2e8f0"
+                fill="#ffffff"
                 fontSize="10"
                 fontWeight="600"
               >
-                {formatPrice(hoveredCandle.close)}
+                {formatPrice(pointerPrice ?? hoveredCandle.close)}
               </text>
             </>
           )}

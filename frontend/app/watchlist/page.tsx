@@ -119,16 +119,14 @@ export default function WatchlistPage() {
 
         const data = await response.json();
 
-        if (!Array.isArray(data)) return;
+        const raw = data?.stocks ?? data;
+        const rows = Array.isArray(raw) ? raw : Object.values(raw || {});
+        const updated: Record<string, Stock> = {};
 
-        const updated = {
-          ...FALLBACK,
-        };
+        rows.forEach((item: any) => {
+          if (!item?.symbol || Number(item?.price ?? 0) <= 0) return;
 
-        data.forEach((item: any) => {
-          if (!item?.symbol) return;
-
-          updated[item.symbol] = {
+          updated[String(item.symbol).toUpperCase()] = {
             symbol: item.symbol,
             price: Number(item.price ?? 0),
             previous_close: Number(
@@ -145,7 +143,7 @@ export default function WatchlistPage() {
 
         setStocks(updated);
       } catch {
-        // fallback remains active
+        setStocks({});
       }
     }
 
@@ -231,10 +229,13 @@ export default function WatchlistPage() {
   ).filter(
     (symbol) =>
       !watchlist.includes(symbol) &&
+      Number(stocks[symbol]?.price ?? 0) > 0 &&
       symbol
         .toLowerCase()
         .includes(search.toLowerCase())
   );
+
+  const quotedWatchlist = watchlist.filter((symbol) => Number(stocks[symbol]?.price ?? 0) > 0);
 
   const formatCurrency = (
     value: number | undefined | null
@@ -350,7 +351,7 @@ export default function WatchlistPage() {
             </p>
 
             <h2 className="mt-1 text-2xl font-semibold">
-              {watchlist.length} Stocks
+              {quotedWatchlist.length} Stocks
             </h2>
           </div>
 
@@ -360,7 +361,7 @@ export default function WatchlistPage() {
           />
         </div>
 
-        {watchlist.length === 0 ? (
+        {quotedWatchlist.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.025] px-6 py-20 text-center">
             <Star
               size={30}
@@ -377,7 +378,7 @@ export default function WatchlistPage() {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {watchlist.map((symbol) => {
+            {quotedWatchlist.map((symbol) => {
               const stock = stocks[symbol];
 
               if (!stock) return null;

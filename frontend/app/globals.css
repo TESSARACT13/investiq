@@ -94,6 +94,31 @@ body {
 .ticker-change.down { background: #faece8; color: #ad594b; }
 @keyframes ticker-scroll { to { transform: translateX(-50%); } }
 
+/* Stock detail screens use one calm green accent and neutral surfaces. */
+.stock-detail-page { background: #f4f6f3 !important; color: #25342b !important; }
+.stock-detail-page [class*="text-white"] { color: #26372d !important; }
+.stock-detail-page [class*="text-slate-"] { color: #77857d !important; }
+.stock-detail-page [class*="border-white/"] { border-color: #e2e9e2 !important; }
+.stock-detail-page [class*="bg-white/"],
+.stock-detail-page [class*="bg-black/"],
+.stock-detail-page [class*="bg-[#0"] { background-color: #fff !important; }
+.stock-detail-page [class*="from-white/"] { --tw-gradient-from: #fff var(--tw-gradient-from-position) !important; }
+.stock-detail-page [class*="to-white/"] { --tw-gradient-to: #fff var(--tw-gradient-to-position) !important; }
+.stock-detail-page [class*="from-violet-"],
+.stock-detail-page [class*="via-blue-"],
+.stock-detail-page [class*="to-transparent"] { background: #fff !important; }
+.stock-detail-page [class*="text-blue-"] { color: #39734f !important; }
+.stock-detail-page [class*="text-emerald-"] { color: #39734f !important; }
+.stock-detail-page [class*="bg-blue-"] { background-color: #eaf2eb !important; }
+.stock-detail-page [class*="border-blue-"] { border-color: #c8dccb !important; }
+.stock-detail-page [class*="bg-emerald-500"] { background-color: #39734f !important; }
+.stock-detail-page [class*="hover:bg-emerald-400"]:hover { background-color: #2e6544 !important; }
+.stock-detail-page [class*="bg-red-500"] { background-color: #a95548 !important; }
+.stock-detail-page [class*="hover:bg-red-400"]:hover { background-color: #94483d !important; }
+.stock-detail-page [class*="shadow-2xl"] { box-shadow: 0 10px 30px rgb(35 52 43 / 7%) !important; }
+.stock-detail-page svg text { fill: #718077; }
+.stock-detail-page svg line[stroke="#1e293b"] { stroke: #e1e8e1; }
+
 /* Bring legacy dark feature screens into the same soft, readable workspace. */
 main[class*="bg-[#050"], main[class*="bg-[#070"] { background: #f4f6f3 !important; color: #25342b !important; }
 main[class*="bg-[#050"] [class*="text-white"], main[class*="bg-[#070"] [class*="text-white"] { color: #26372d; }

@@ -30,44 +30,13 @@ type StockPrice = {
   change_percent: number;
 };
 
-const FALLBACK_PRICES: Record<string, StockPrice> = {
-  RELIANCE: {
-    symbol: "RELIANCE",
-    price: 1226,
-    previous_close: 1219.2,
-    change: 6.8,
-    change_percent: 0.56,
-  },
-  TCS: {
-    symbol: "TCS",
-    price: 2082,
-    previous_close: 2087,
-    change: -5,
-    change_percent: -0.24,
-  },
-  INFY: {
-    symbol: "INFY",
-    price: 1000.2,
-    previous_close: 1014.5,
-    change: -14.3,
-    change_percent: -1.41,
-  },
-  HDFCBANK: {
-    symbol: "HDFCBANK",
-    price: 735.6,
-    previous_close: 728.9,
-    change: 6.7,
-    change_percent: 0.92,
-  },
-};
-
 export default function PortfolioPage() {
   const router = useRouter();
 
   const [cash, setCash] = useState(100000);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [prices, setPrices] =
-    useState<Record<string, StockPrice>>(FALLBACK_PRICES);
+    useState<Record<string, StockPrice>>({});
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -133,11 +102,13 @@ export default function PortfolioPage() {
 
         const data = await response.json();
 
-        if (Array.isArray(data)) {
+        {
+          const raw = data?.stocks ?? data;
+          const rows = Array.isArray(raw) ? raw : Object.values(raw || {});
           const mapped: Record<string, StockPrice> = {};
 
-          data.forEach((stock) => {
-            if (!stock?.symbol || !stock?.price) return;
+          rows.forEach((stock: any) => {
+            if (!stock?.symbol || Number(stock?.price ?? 0) <= 0) return;
 
             mapped[stock.symbol] = {
               symbol: stock.symbol,
@@ -150,10 +121,7 @@ export default function PortfolioPage() {
             };
           });
 
-          setPrices((previous) => ({
-            ...previous,
-            ...mapped,
-          }));
+          setPrices(mapped);
         }
       } catch {
         // Keep fallback prices
@@ -179,16 +147,16 @@ export default function PortfolioPage() {
         if (!data) return;
 
         const updated: Record<string, StockPrice> = {};
-
-        Object.entries(data).forEach(([symbol, value]: any) => {
-          if (!value?.price) return;
-
+        const raw = data?.stocks ?? data?.data ?? data;
+        const rows = Array.isArray(raw) ? raw : Object.entries(raw || {}).map(([symbol, value]: any) => ({ symbol, ...value }));
+        rows.forEach((value: any) => {
+          const symbol = String(value?.symbol ?? "").toUpperCase();
+          const price = Number(value?.price ?? value?.last_price ?? value?.ltp ?? 0);
+          if (!symbol || !Number.isFinite(price) || price <= 0) return;
           updated[symbol] = {
             symbol,
-            price: Number(value.price),
-            previous_close: Number(
-              value.previous_close ?? value.price
-            ),
+            price,
+            previous_close: Number(value.previous_close ?? value.cp ?? price),
             change: Number(value.change ?? 0),
             change_percent: Number(value.change_percent ?? 0),
           };

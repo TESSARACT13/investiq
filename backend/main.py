@@ -9,6 +9,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Set
 from importlib.util import module_from_spec, spec_from_file_location
+from urllib.parse import quote
 
 # The Upstox SDK declares a legacy PyPI package named `uuid`. Vercel vendors
 # third-party packages ahead of the standard library, so preload Python's
@@ -1502,6 +1503,98 @@ async def market_overview():
     }
 
 
+@app.get("/market/quote/{symbol}")
+async def market_quote(symbol: str):
+    """Return a single current quote, with sample data clearly marked."""
+    symbol = symbol.upper().strip()
+
+    if not STOCKS:
+        await load_stock_universe()
+
+    instrument_key = STOCKS.get(symbol)
+    if not instrument_key:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{symbol} is not in the supported NSE stock list.",
+        )
+
+    access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
+    if not access_token:
+        sample = FALLBACK_PRICES.get(symbol)
+        if sample:
+            return {
+                **build_stock_data(
+                    symbol,
+                    sample["price"],
+                    sample["previous_close"],
+                ),
+                "source": "sample",
+            }
+        raise HTTPException(
+            status_code=503,
+            detail="Live prices are not configured. Add a current Upstox access token to the API deployment.",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                "https://api.upstox.com/v3/market-quote/ltp",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={"instrument_key": instrument_key},
+            )
+    except httpx.HTTPError as error:
+        print(f"Upstox quote request failed for {symbol}: {error}")
+        raise HTTPException(
+            status_code=502,
+            detail="Upstox could not be reached. Try refreshing the quote.",
+        ) from error
+
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=502,
+            detail="Upstox rejected the access token. Create a fresh token and update UPSTOX_ACCESS_TOKEN in Vercel.",
+        )
+    if response.status_code != 200:
+        print(f"Upstox quote request for {symbol} returned HTTP {response.status_code}.")
+        raise HTTPException(
+            status_code=502,
+            detail="Upstox did not return a market quote. Try again shortly.",
+        )
+
+    payload = response.json()
+    quotes = payload.get("data", {})
+    quote = next(
+        (
+            item
+            for key, item in quotes.items()
+            if normalize_instrument_key(key) == normalize_instrument_key(instrument_key)
+        ),
+        None,
+    ) if isinstance(quotes, dict) else None
+    if not isinstance(quote, dict) or not quote.get("last_price"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Upstox has no current quote for {symbol}. Check again during market hours.",
+        )
+
+    price = float(quote["last_price"])
+    previous_close = float(quote.get("cp") or price)
+    stock = build_stock_data(
+        symbol=symbol,
+        price=price,
+        previous_close=previous_close,
+        ltq=int(quote.get("ltq") or 0),
+        timestamp=quote.get("ltt") or datetime.now(tz=IST).isoformat(),
+    )
+    stock["volume"] = int(quote.get("volume") or 0)
+    stock["source"] = "upstox"
+    latest_prices[symbol] = stock
+    return stock
+
+
 # ============================================================
 # HISTORICAL CANDLES
 # ============================================================
@@ -1578,8 +1671,8 @@ async def get_candles(
         ),
 
         "1d": (
-            "days",
-            "1",
+            "minutes",
+            "5",
             1,
         ),
 
@@ -1666,15 +1759,21 @@ async def get_candles(
         symbol
     ]
 
-    url = (
-        "https://api.upstox.com/v3/"
-        "historical-candle/"
-        f"{instrument_key}/"
-        f"{unit}/"
-        f"{interval}/"
-        f"{to_date.isoformat()}/"
-        f"{from_date.isoformat()}"
-    )
+    if timeframe == "1d":
+        url = (
+            "https://api.upstox.com/v3/historical-candle/intraday/"
+            f"{quote(instrument_key, safe='')}/minutes/5"
+        )
+    else:
+        url = (
+            "https://api.upstox.com/v3/"
+            "historical-candle/"
+            f"{quote(instrument_key, safe='')}/"
+            f"{unit}/"
+            f"{interval}/"
+            f"{to_date.isoformat()}/"
+            f"{from_date.isoformat()}"
+        )
 
     headers = {
         "Accept": "application/json",

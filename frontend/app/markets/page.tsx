@@ -366,13 +366,9 @@ function normalizeMarketResponse(
         (
           stock: Stock | null
         ): stock is Stock =>
-          stock !== null
+          stock !== null && stock.price > 0
       );
-    const known = new Set(received.map((stock) => stock.symbol));
-    return [...received, ...Object.keys(COMPANY_NAMES).filter((symbol) => !known.has(symbol)).map((symbol) => ({
-      symbol, name: getCompanyName(symbol), price: 0, previous_close: 0,
-      change: 0, change_percent: 0, ltq: 0,
-    }))];
+    return received;
   }
 
   /*
@@ -388,7 +384,7 @@ function normalizeMarketResponse(
         (
           stock: Stock | null
         ): stock is Stock =>
-          stock !== null
+          stock !== null && stock.price > 0
       );
   }
 
