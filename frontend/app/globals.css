@@ -109,6 +109,8 @@ body {
 .auth-error,.auth-success { border-radius: 10px; padding: 10px 12px; font-size: 11px; line-height: 1.6; }
 .auth-error { background: #fff0ec; color: #a34b38; }
 .auth-success { background: #edf7ee; color: #3c7950; }
+.auth-hint { color: #7b887f; font-size: 11px; line-height: 1.6; }
+.auth-text-button { justify-self: center; border: 0; background: transparent; color: #3d7651; cursor: pointer; font: inherit; font-size: 11px; }
 .auth-reset { display: block; margin: 14px 0 0 auto; border: 0; background: transparent; color: #567a60; cursor: pointer; font: inherit; font-size: 11px; }
 .auth-switch { margin-top: 27px; color: #7b887f; font-size: 11px; text-align: center; }
 .auth-switch a { color: #3d7651; font-weight: 650; text-decoration: none; }
