@@ -416,9 +416,6 @@ export default function MarketsPage() {
   const [sortDescending, setSortDescending] =
     useState(false);
 
-  const [connected, setConnected] =
-    useState(false);
-
   const [source, setSource] =
     useState<
       "live" | "last-recorded" | "fallback"
@@ -493,7 +490,6 @@ export default function MarketsPage() {
           "Connected to INVESTIQ market stream"
         );
 
-        setConnected(true);
       };
 
       socket.onmessage = (
@@ -605,8 +601,6 @@ export default function MarketsPage() {
           "Market WebSocket disconnected"
         );
 
-        setConnected(false);
-
         reconnectTimer =
           setTimeout(
             connect,
@@ -615,7 +609,6 @@ export default function MarketsPage() {
       };
 
       socket.onerror = () => {
-        setConnected(false);
       };
     }
 
@@ -763,19 +756,19 @@ export default function MarketsPage() {
 
               <div
                 className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
-                  connected
+                  source === "live"
                     ? "border-green-500/20 bg-green-500/10 text-green-400"
                     : "border-yellow-500/20 bg-yellow-500/10 text-yellow-400"
                 }`}
               >
-                {connected ? (
+                {source === "live" ? (
                   <Wifi size={13} />
                 ) : (
                   <WifiOff size={13} />
                 )}
 
-                {connected
-                  ? "Live connection"
+                {source === "live"
+                  ? "Live quote updates"
                   : source === "fallback" ? "Sample quotes · live feed not connected" : "Last recorded prices"}
               </div>
             </div>
@@ -996,14 +989,13 @@ export default function MarketsPage() {
 
                     <div className="mt-7">
                       <p className="text-2xl font-bold tabular-nums">
-                        {stock.price > 0 ? "₹" : ""}
-                        {stock.price.toLocaleString(
+                        {stock.price > 0 ? `₹${stock.price.toLocaleString(
                           "en-IN",
                           {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           }
-                        )}{stock.price <= 0 && <span className="text-sm font-medium text-gray-500">Quote unavailable</span>}
+                        )}` : <span className="text-sm font-medium text-gray-500">Quote unavailable</span>}
                       </p>
 
                       {stock.price > 0 && <div className="mt-2 flex items-center gap-2 text-sm">
@@ -1049,14 +1041,13 @@ export default function MarketsPage() {
                       </span>
 
                       <span>
-                        ₹
-                        {stock.previous_close.toLocaleString(
+                        {stock.previous_close > 0 ? `₹${stock.previous_close.toLocaleString(
                           "en-IN",
                           {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           }
-                        )}
+                        )}` : "—"}
                       </span>
                     </div>
 
