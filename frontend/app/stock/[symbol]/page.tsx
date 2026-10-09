@@ -105,45 +105,11 @@ type Candle = {
   volume?: number;
 };
 
-const FALLBACK_STOCKS: Record<
-  string,
-  StockData
-> = {
-  RELIANCE: {
-    symbol: "RELIANCE",
-    name: "Reliance Industries",
-    price: 1226,
-    previous_close: 1219.2,
-    change: 6.8,
-    change_percent: 0.56,
-  },
-
-  TCS: {
-    symbol: "TCS",
-    name: "Tata Consultancy Services",
-    price: 2082,
-    previous_close: 2087,
-    change: -5,
-    change_percent: -0.24,
-  },
-
-  INFY: {
-    symbol: "INFY",
-    name: "Infosys",
-    price: 1000.2,
-    previous_close: 1014.5,
-    change: -14.3,
-    change_percent: -1.41,
-  },
-
-  HDFCBANK: {
-    symbol: "HDFCBANK",
-    name: "HDFC Bank",
-    price: 735.6,
-    previous_close: 728.9,
-    change: 6.7,
-    change_percent: 0.92,
-  },
+const STOCK_NAMES: Record<string, string> = {
+  RELIANCE: "Reliance Industries",
+  TCS: "Tata Consultancy Services",
+  INFY: "Infosys",
+  HDFCBANK: "HDFC Bank",
 };
 
 function formatPrice(value: number) {
@@ -266,15 +232,14 @@ function normalizeStock(
   data: any,
   symbol: string
 ): StockData {
-  const fallback =
-    FALLBACK_STOCKS[symbol] ?? {
-      symbol,
-      name: symbol,
-      price: 0,
-      previous_close: 0,
-      change: 0,
-      change_percent: 0,
-    };
+  const fallback = {
+    symbol,
+    name: STOCK_NAMES[symbol] ?? symbol,
+    price: 0,
+    previous_close: 0,
+    change: 0,
+    change_percent: 0,
+  };
 
   const price = Number(
     data?.price ??
@@ -418,11 +383,9 @@ export default function StockDetailsPage() {
     useState<StockData | null>(
       () => {
         return (
-          FALLBACK_STOCKS[
-            symbol
-          ] ?? {
+          {
             symbol,
-            name: symbol,
+            name: STOCK_NAMES[symbol] ?? symbol,
             price: 0,
             previous_close: 0,
             change: 0,
@@ -451,7 +414,7 @@ export default function StockDetailsPage() {
 
   const [marketConnected, setMarketConnected] =
     useState(false);
-  const [quoteStatus, setQuoteStatus] = useState<"loading" | "live" | "sample" | "unavailable">("loading");
+  const [quoteStatus, setQuoteStatus] = useState<"loading" | "live" | "last-close" | "unavailable">("loading");
   const [quoteMessage, setQuoteMessage] = useState("");
 
   const [quantity, setQuantity] =
@@ -530,7 +493,7 @@ export default function StockDetailsPage() {
 
         if (!cancelled) {
           setStock(normalizeStock(data, symbol));
-          setQuoteStatus(data?.source === "sample" ? "sample" : "live");
+          setQuoteStatus(data?.source === "last_close" ? "last-close" : "live");
           setQuoteMessage("");
         }
       } catch (error) {
@@ -542,10 +505,10 @@ export default function StockDetailsPage() {
         if (!cancelled) {
           // Keep the instrument page usable without presenting an old demo
           // quote as current market data.
-          const instrument = FALLBACK_STOCKS[symbol];
+          const instrument = STOCK_NAMES[symbol];
           setStock({
             symbol,
-            name: instrument?.name ?? symbol,
+            name: instrument ?? symbol,
             price: 0,
             previous_close: 0,
             change: 0,
@@ -924,7 +887,8 @@ export default function StockDetailsPage() {
           );
 
         if (!incoming) return;
-        const hasLiveTimestamp = Boolean(incoming?.timestamp ?? incoming?.ltt);
+        const incomingSource = String(incoming?.source || "");
+        const hasLiveTimestamp = ["upstox", "upstox_websocket"].includes(incomingSource) && Boolean(incoming?.timestamp ?? incoming?.ltt);
 
         const updatedPrice =
           Number(
@@ -947,11 +911,9 @@ export default function StockDetailsPage() {
           (previous) => {
             const fallback =
               previous ??
-              FALLBACK_STOCKS[
-                symbol
-              ] ?? {
+              {
                 symbol,
-                name: symbol,
+                name: STOCK_NAMES[symbol] ?? symbol,
                 price: 0,
                 previous_close: 0,
                 change: 0,
@@ -989,14 +951,17 @@ export default function StockDetailsPage() {
                     100
                   : fallback.change_percent,
               timestamp: incoming?.timestamp ?? incoming?.ltt ?? fallback.timestamp,
-              source: hasLiveTimestamp ? "upstox" : fallback.source,
+              source: incomingSource || fallback.source,
             };
           }
         );
 
         if (hasLiveTimestamp) {
-          setMarketConnected(true);
+          if (incomingSource === "upstox_websocket") setMarketConnected(true);
           setQuoteStatus("live");
+          setQuoteMessage("");
+        } else if (incomingSource === "last_close") {
+          setQuoteStatus("last-close");
           setQuoteMessage("");
         }
 
@@ -1076,7 +1041,7 @@ export default function StockDetailsPage() {
           await response.json();
 
         setStock(normalizeStock(data, symbol));
-        setQuoteStatus(data?.source === "sample" ? "sample" : "live");
+        setQuoteStatus(data?.source === "last_close" ? "last-close" : "live");
         setQuoteMessage("");
       } else {
         const body = await response.json().catch(() => ({}));
@@ -1199,9 +1164,9 @@ export default function StockDetailsPage() {
                 {quoteStatus === "live" && marketConnected
                   ? "LIVE PRICE"
                   : quoteStatus === "live"
-                    ? "LAST QUOTE"
-                    : quoteStatus === "sample"
-                      ? "SAMPLE PRICE"
+                    ? "LATEST PRICE"
+                    : quoteStatus === "last-close"
+                      ? "LAST TRADE"
                       : quoteStatus === "unavailable"
                         ? "PRICE UNAVAILABLE"
                         : "CHECKING PRICE"}
@@ -1283,6 +1248,7 @@ export default function StockDetailsPage() {
                 <Clock3 size={13} />
                 Previous close {stock.previous_close > 0 ? formatPrice(stock.previous_close) : "—"}
               </p>
+              {hasPrice && <p className="mt-1 pl-5 text-xs text-slate-500">Last trade {stock.timestamp ? formatFullDate(stock.timestamp) : "time not supplied"}</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

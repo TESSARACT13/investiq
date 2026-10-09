@@ -22,6 +22,8 @@ type Stock = {
   change_percent: number;
   ltq: number;
   timestamp?: string;
+  source?: string;
+  quote_available: boolean;
 };
 
 const SECTORS: Record<string, string> = {
@@ -265,6 +267,14 @@ function getCompanyName(symbol: string): string {
   return COMPANY_NAMES[symbol] || symbol;
 }
 
+function formatTradeTime(value?: string): string {
+  if (!value) return "Time not supplied";
+  const numeric = Number(value);
+  const date = new Date(Number.isFinite(numeric) ? numeric < 10_000_000_000 ? numeric * 1000 : numeric : value);
+  if (Number.isNaN(date.getTime())) return "Time not supplied";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 function normalizeStock(
   value: unknown,
   fallbackSymbol?: string
@@ -312,7 +322,7 @@ function normalizeStock(
 
   return {
     symbol,
-    name: getCompanyName(symbol),
+    name: String(data.name || getCompanyName(symbol)),
     price,
     previous_close: previousClose,
     change,
@@ -322,6 +332,8 @@ function normalizeStock(
       data.timestamp !== undefined
         ? String(data.timestamp)
         : undefined,
+    source: String(data.source || (price > 0 ? "last_close" : "unavailable")),
+    quote_available: data.quote_available === true || price > 0,
   };
 }
 
@@ -366,7 +378,7 @@ function normalizeMarketResponse(
         (
           stock: Stock | null
         ): stock is Stock =>
-          stock !== null && stock.price > 0
+          stock !== null
       );
     return received;
   }
@@ -384,7 +396,7 @@ function normalizeMarketResponse(
         (
           stock: Stock | null
         ): stock is Stock =>
-          stock !== null && stock.price > 0
+          stock !== null
       );
   }
 
@@ -411,11 +423,10 @@ export default function MarketsPage() {
 
   const [sortDescending, setSortDescending] =
     useState(false);
+  const [page, setPage] = useState(1);
 
-  const [source, setSource] =
-    useState<
-      "live" | "last-recorded" | "fallback"
-    >("last-recorded");
+  const [source, setSource] = useState<"live" | "last-recorded" | "unavailable">("last-recorded");
+  const [marketMessage, setMarketMessage] = useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -424,7 +435,7 @@ export default function MarketsPage() {
     try {
       const response =
         await fetch(
-          `${API_URL}/market/overview`,
+          `${API_URL}/market/universe`,
           {
             cache: "no-store",
           }
@@ -449,7 +460,8 @@ export default function MarketsPage() {
       );
 
       setStocks(normalized);
-      setSource(data?.source === "fallback" ? "fallback" : "last-recorded");
+      setSource(data?.source === "live" ? "live" : data?.source === "unavailable" ? "unavailable" : "last-recorded");
+      setMarketMessage(String(data?.message || ""));
     } catch (error) {
       console.error(
         "Market overview error:",
@@ -572,6 +584,8 @@ export default function MarketsPage() {
                               update.timestamp
                             )
                           : stock.timestamp,
+                      source: String(update.source || stock.source),
+                      quote_available: price > 0,
                     };
                   }
                 );
@@ -580,7 +594,7 @@ export default function MarketsPage() {
             }
           );
 
-          if (Object.values(liveData).some((item: any) => Boolean(item?.timestamp))) {
+          if (Object.values(liveData).some((item: any) => ["upstox", "upstox_websocket"].includes(String(item?.source)))) {
             setSource("live");
           }
           setLoading(false);
@@ -717,6 +731,10 @@ export default function MarketsPage() {
       sortDescending,
     ]);
 
+  const pageSize = 24;
+  const pageCount = Math.max(1, Math.ceil(filteredStocks.length / pageSize));
+  const visibleStocks = filteredStocks.slice((page - 1) * pageSize, page * pageSize);
+
   function handleSort(
     key:
       | "symbol"
@@ -738,7 +756,7 @@ export default function MarketsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050816] px-4 py-6 text-white sm:px-6 lg:px-8">
+    <main className="market-explorer min-h-screen bg-[#050816] px-4 py-6 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
 
         {/* HEADER */}
@@ -763,14 +781,12 @@ export default function MarketsPage() {
                   <WifiOff size={13} />
                 )}
 
-                {source === "live"
-                  ? "Live quote updates"
-                  : source === "fallback" ? "Sample quotes · live feed not connected" : "Last recorded prices"}
+                {source === "live" ? "Live market" : source === "last-recorded" ? "Last traded prices" : "Market data reconnecting"}
               </div>
             </div>
 
             <p className="mt-2 text-sm text-gray-500">
-              Browse the INVESTIQ stock universe. Live prices appear when your market feed is connected.
+              Browse the full NSE stock list. Prices use the latest Upstox trade; live updates appear during market hours.
             </p>
           </div>
 
@@ -784,11 +800,10 @@ export default function MarketsPage() {
 
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
-              }
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
               placeholder="Search stocks..."
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500"
             />
@@ -801,9 +816,7 @@ export default function MarketsPage() {
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <Activity size={14} />
 
-            {source === "live"
-              ? "Showing live market data from Upstox"
-              : source === "fallback" ? "Sample quotes are for preview only. Connect Upstox for current prices." : "Quotes vary by symbol. We don’t invent prices when a feed is unavailable."}
+            {marketMessage || (source === "live" ? "Prices are updating from the live market feed." : source === "last-recorded" ? "After hours, prices show the latest recorded trade from Upstox." : "The full stock catalog remains available while market data reconnects.")}
           </div>
 
           <div className="flex items-center gap-2 text-xs">
@@ -822,9 +835,7 @@ export default function MarketsPage() {
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <button
-              onClick={() =>
-                setSector("ALL")
-              }
+              onClick={() => { setSector("ALL"); setPage(1); }}
               className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition ${
                 sector === "ALL"
                   ? "bg-blue-500/15 text-blue-400"
@@ -838,9 +849,7 @@ export default function MarketsPage() {
               (item) => (
                 <button
                   key={item}
-                  onClick={() =>
-                    setSector(item)
-                  }
+                  onClick={() => { setSector(item); setPage(1); }}
                   className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition ${
                     sector === item
                       ? "bg-blue-500/15 text-blue-400"
@@ -925,7 +934,7 @@ export default function MarketsPage() {
           </div>
         ) : (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredStocks.map(
+            {visibleStocks.map(
               (stock) => {
                 const positive =
                   stock.change >= 0;
@@ -960,7 +969,7 @@ export default function MarketsPage() {
                         </p>
                       </div>
 
-                      <div
+                      {stock.price > 0 && <div
                         className={`rounded-lg p-2 ${
                           positive
                             ? "bg-green-500/10"
@@ -978,7 +987,7 @@ export default function MarketsPage() {
                             className="text-red-400"
                           />
                         )}
-                      </div>
+                      </div>}
                     </div>
 
                     {/* PRICE */}
@@ -991,8 +1000,10 @@ export default function MarketsPage() {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           }
-                        )}` : <span className="text-sm font-medium text-gray-500">Quote unavailable</span>}
+                        )}` : <span className="text-sm font-medium text-gray-400">—</span>}
                       </p>
+
+                      {stock.price <= 0 && <p className="mt-2 text-xs text-gray-500">Listed on NSE</p>}
 
                       {stock.price > 0 && <div className="mt-2 flex items-center gap-2 text-sm">
                         <span
@@ -1032,38 +1043,27 @@ export default function MarketsPage() {
                     {/* PREVIOUS CLOSE */}
 
                     <div className="mt-5 flex justify-between border-t border-white/10 pt-4 text-xs text-gray-600">
-                      <span>
-                        Previous close
-                      </span>
+                      <span>{stock.price > 0 ? stock.source === "upstox_websocket" ? "Live feed" : "Last trade" : "Instrument"}</span>
 
                       <span>
-                        {stock.previous_close > 0 ? `₹${stock.previous_close.toLocaleString(
-                          "en-IN",
-                          {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }
-                        )}` : "—"}
+                        {stock.price > 0 ? formatTradeTime(stock.timestamp) : "NSE listed"}
                       </span>
                     </div>
 
-                    {/* LTQ */}
-
-                    <div className="mt-2 flex justify-between text-xs text-gray-700">
-                      <span>
-                        Last traded qty
-                      </span>
-
-                      <span>
-                        {stock.ltq.toLocaleString(
-                          "en-IN"
-                        )}
-                      </span>
-                    </div>
                   </button>
                 );
               }
             )}
+          </div>
+        )}
+
+        {!loading && pageCount > 1 && (
+          <div className="mt-6 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+            <p className="text-xs text-gray-500">Page {page} of {pageCount} · {filteredStocks.length} stocks</p>
+            <div className="flex gap-2">
+              <button onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-40">Previous</button>
+              <button onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page === pageCount} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-40">Next</button>
+            </div>
           </div>
         )}
 

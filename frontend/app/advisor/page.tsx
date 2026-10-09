@@ -112,7 +112,7 @@ export default function AdvisorPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [quoteSource, setQuoteSource] = useState<"upstox" | "fallback" | "unknown">("unknown");
+  const [quoteSource, setQuoteSource] = useState<"live" | "last_close" | "fallback" | "unknown">("unknown");
 
   const loadScores = useCallback(
     async (showRefresh = false) => {
@@ -140,7 +140,7 @@ export default function AdvisorPage() {
 
         const data = await response.json();
 
-        setQuoteSource(data?.source === "upstox" ? "upstox" : data?.source === "fallback" ? "fallback" : "unknown");
+        setQuoteSource(data?.source === "live" ? "live" : data?.source === "last_close" ? "last_close" : data?.source === "fallback" ? "fallback" : "unknown");
 
         console.log("INVESTIQ AI response:", data);
 
@@ -306,7 +306,7 @@ export default function AdvisorPage() {
                 </span>
 
                 <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400">
-                  {quoteSource === "upstox" ? "LIVE QUOTES" : quoteSource === "fallback" ? "SAMPLE QUOTES" : "QUOTE STATUS"}
+                  {quoteSource === "live" ? "LIVE QUOTES" : quoteSource === "last_close" ? "LAST TRADE" : quoteSource === "fallback" ? "SAMPLE QUOTES" : "QUOTE STATUS"}
                 </span>
               </div>
 
@@ -315,7 +315,7 @@ export default function AdvisorPage() {
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Signals are rule-based screening hints, not personalized advice. Sample quotes are labeled below when your live feed is disconnected.
+                Signals use the latest available market data. Last-traded prices are marked after hours; treat every signal as a screening hint, not personalized advice.
               </p>
             </div>
 
@@ -347,7 +347,7 @@ export default function AdvisorPage() {
           </div>
         </section>
 
-        {!loading && scores.length > 0 && quoteSource === "fallback" && <div role="status" className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200/80">Showing the backend’s sample/last-known quotes. Refresh after connecting the Upstox market feed before acting on any signal.</div>}
+        {!loading && scores.length > 0 && quoteSource === "last_close" && <div role="status" className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-5 text-slate-500">Market is closed. Signals use each stock’s latest recorded trade and will refresh when live trading resumes.</div>}
 
         {/* Loading */}
         {loading && (
@@ -429,7 +429,7 @@ export default function AdvisorPage() {
                   <AIScoreCard
                     key={item.symbol}
                     item={item}
-                    allowPaperTrade={quoteSource === "upstox"}
+                    allowPaperTrade={quoteSource === "live" || quoteSource === "last_close"}
                   />
                 ))}
               </div>

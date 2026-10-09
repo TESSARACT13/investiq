@@ -76,6 +76,7 @@ app.add_middleware(
 # ============================================================
 
 STOCKS: dict[str, str] = {}
+STOCK_NAMES: dict[str, str] = {}
 
 
 # ============================================================
@@ -89,6 +90,8 @@ streamer = None
 main_loop = None
 
 latest_prices: dict[str, dict] = {}
+last_quote_refresh: datetime | None = None
+market_data_message: str | None = None
 
 
 # ============================================================
@@ -398,36 +401,12 @@ def aggregate_live_candles(
 
 
 # ============================================================
-# FALLBACK MARKET DATA
-# ============================================================
-
-FALLBACK_PRICES = {
-    "RELIANCE": {
-        "price": 1226.00,
-        "previous_close": 1219.20,
-    },
-    "TCS": {
-        "price": 2082.00,
-        "previous_close": 2087.00,
-    },
-    "INFY": {
-        "price": 1000.20,
-        "previous_close": 1014.50,
-    },
-    "HDFCBANK": {
-        "price": 735.60,
-        "previous_close": 728.90,
-    },
-}
-
-
-# ============================================================
 # LOAD STOCK UNIVERSE
 # ============================================================
 
 async def load_stock_universe():
 
-    global STOCKS
+    global STOCKS, STOCK_NAMES
 
     instrument_url = (
         "https://assets.upstox.com/"
@@ -460,6 +439,7 @@ async def load_stock_universe():
         )
 
         symbol_to_key: dict[str, str] = {}
+        symbol_to_name: dict[str, str] = {}
 
         for instrument in instruments:
 
@@ -496,8 +476,12 @@ async def load_stock_universe():
             symbol_to_key[
                 symbol
             ] = instrument_key
+            symbol_to_name[symbol] = str(
+                instrument.get("name") or instrument.get("company_name") or symbol
+            )
 
         resolved: dict[str, str] = {}
+        resolved_names: dict[str, str] = {}
 
         missing: list[str] = []
 
@@ -514,6 +498,7 @@ async def load_stock_universe():
                 resolved[
                     symbol
                 ] = instrument_key
+                resolved_names[symbol] = symbol_to_name.get(symbol, symbol)
 
             else:
 
@@ -522,6 +507,7 @@ async def load_stock_universe():
                 )
 
         STOCKS = resolved
+        STOCK_NAMES = resolved_names
 
         print(
             f"Loaded {len(STOCKS)} / "
@@ -596,59 +582,6 @@ def get_symbol_from_instrument_key(
 
 
 # ============================================================
-# FALLBACK PRICES
-# ============================================================
-
-def apply_fallback_prices():
-
-    for symbol, data in (
-        FALLBACK_PRICES.items()
-    ):
-
-        if symbol in latest_prices:
-            continue
-
-        price = float(
-            data["price"]
-        )
-
-        previous_close = float(
-            data["previous_close"]
-        )
-
-        change = (
-            price
-            - previous_close
-        )
-
-        change_percent = (
-            (
-                change
-                / previous_close
-            )
-            * 100
-            if previous_close
-            else 0.0
-        )
-
-        latest_prices[
-            symbol
-        ] = {
-            "symbol": symbol,
-            "instrument_key": STOCKS.get(
-                symbol,
-                "",
-            ),
-            "price": price,
-            "previous_close": previous_close,
-            "change": change,
-            "change_percent": change_percent,
-            "ltq": 0,
-            "timestamp": None,
-        }
-
-
-# ============================================================
 # STOCK DATA BUILDER
 # ============================================================
 
@@ -700,7 +633,14 @@ def build_stock_data(
 
 async def update_latest_from_rest():
 
-    global latest_prices
+    global latest_prices, last_quote_refresh, market_data_message
+
+    refresh_time = datetime.now(tz=IST)
+    session_open = refresh_time.weekday() < 5 and (9, 15) <= (refresh_time.hour, refresh_time.minute) < (15, 30)
+    if not session_open:
+        for cached_quote in latest_prices.values():
+            if cached_quote.get("source") in {"upstox", "upstox_websocket"}:
+                cached_quote["source"] = "last_close"
 
     if not STOCKS:
 
@@ -708,6 +648,7 @@ async def update_latest_from_rest():
             "No stocks available for market quote refresh."
         )
 
+        market_data_message = "The NSE instrument list could not be loaded."
         return
 
     access_token = os.getenv(
@@ -720,6 +661,8 @@ async def update_latest_from_rest():
             "UPSTOX_ACCESS_TOKEN is missing."
         )
 
+        last_quote_refresh = datetime.now(tz=IST)
+        market_data_message = "Add a current Upstox access token to the API deployment to load market prices."
         return
 
     headers = {
@@ -729,16 +672,9 @@ async def update_latest_from_rest():
         ),
     }
 
-    symbols = list(
-        STOCKS.keys()
-    )
-
-    print()
-
-    print(
-        f"Fetching Upstox prices for "
-        f"{len(symbols)} INVESTIQ stocks..."
-    )
+    symbols = list(STOCKS.keys())
+    instrument_keys = [STOCKS[symbol] for symbol in symbols]
+    print(f"Fetching Upstox full market quotes for {len(symbols)} INVESTIQ stocks...")
 
     try:
 
@@ -746,176 +682,73 @@ async def update_latest_from_rest():
             timeout=30
         ) as client:
 
-            batch_size = 100
+            if not instrument_keys:
+                return
 
-            for start in range(
-                0,
-                len(symbols),
-                batch_size,
-            ):
+            response = await client.get(
+                "https://api.upstox.com/v3/market-quote/quotes",
+                headers=headers,
+                params={"instrument_key": ",".join(instrument_keys)},
+            )
 
-                batch_symbols = (
-                    symbols[
-                        start:
-                        start + batch_size
-                    ]
+            if response.status_code != 200:
+                print(f"Upstox full quote request failed: HTTP {response.status_code}")
+                last_quote_refresh = datetime.now(tz=IST)
+                market_data_message = (
+                    "Upstox rejected the access token. Refresh UPSTOX_ACCESS_TOKEN in Vercel."
+                    if response.status_code in (401, 403)
+                    else "Upstox could not provide a market snapshot. Try refreshing shortly."
                 )
+                return
 
-                batch_keys = [
-                    STOCKS[symbol]
-                    for symbol in batch_symbols
-                    if symbol in STOCKS
-                ]
+            payload = response.json()
+            data = payload.get("data", {})
+            if not isinstance(data, dict):
+                last_quote_refresh = datetime.now(tz=IST)
+                return
 
-                if not batch_keys:
+            now = datetime.now(tz=IST)
+            market_open = now.weekday() < 5 and (9, 15) <= (now.hour, now.minute) < (15, 30)
+            updated_count = 0
+            for response_key, quote in data.items():
+                if not isinstance(quote, dict):
+                    continue
+                instrument_key = quote.get("instrument_token") or response_key
+                symbol = get_symbol_from_instrument_key(instrument_key)
+                if symbol not in STOCKS:
                     continue
 
-                params = {
-                    "instrument_key": ",".join(
-                        batch_keys
-                    )
-                }
-
-                response = await client.get(
-                    "https://api.upstox.com/v3/market-quote/ltp",
-                    headers=headers,
-                    params=params,
-                )
-
-                if response.status_code != 200:
-
-                    print(
-                        "Upstox LTP request failed:"
-                    )
-
-                    print(
-                        response.status_code
-                    )
-
-                    print(
-                        response.text
-                    )
-
+                try:
+                    last_price = float(quote.get("last_price") or 0)
+                    previous_close = float(quote.get("prev_close_price") or quote.get("ohlc", {}).get("close") or last_price)
+                except (TypeError, ValueError):
+                    continue
+                if last_price <= 0:
                     continue
 
-                payload = response.json()
+                raw_trade_time = quote.get("last_trade_time")
+                timestamp = None
+                try:
+                    if raw_trade_time:
+                        timestamp = timestamp_to_ist(int(raw_trade_time))
+                except (TypeError, ValueError, OverflowError):
+                    pass
 
-                data = payload.get(
-                    "data",
-                    {},
+                stock_data = build_stock_data(
+                    symbol=symbol,
+                    price=last_price,
+                    previous_close=previous_close if previous_close > 0 else last_price,
+                    ltq=int(quote.get("ltq") or 0),
+                    timestamp=timestamp,
                 )
+                stock_data["source"] = "upstox" if market_open else "last_close"
+                stock_data["volume"] = int(quote.get("volume") or 0)
+                latest_prices[symbol] = stock_data
+                updated_count += 1
 
-                if not isinstance(
-                    data,
-                    dict,
-                ):
-
-                    continue
-
-                for (
-                    instrument_key,
-                    quote,
-                ) in data.items():
-
-                    if not isinstance(
-                        quote,
-                        dict,
-                    ):
-
-                        continue
-
-                    last_price = quote.get(
-                        "last_price"
-                    )
-
-                    if last_price is None:
-                        continue
-
-                    try:
-
-                        last_price = float(
-                            last_price
-                        )
-
-                    except (
-                        TypeError,
-                        ValueError,
-                    ):
-
-                        continue
-
-                    if last_price <= 0:
-                        continue
-
-                    symbol = (
-                        get_symbol_from_instrument_key(
-                            instrument_key
-                        )
-                    )
-
-                    if symbol not in STOCKS:
-                        continue
-
-                    previous_close = (
-                        quote.get(
-                            "cp"
-                        )
-                        or quote.get(
-                            "previous_close"
-                        )
-                        or last_price
-                    )
-
-                    try:
-
-                        previous_close = float(
-                            previous_close
-                        )
-
-                    except (
-                        TypeError,
-                        ValueError,
-                    ):
-
-                        previous_close = (
-                            last_price
-                        )
-
-                    if previous_close <= 0:
-
-                        previous_close = (
-                            last_price
-                        )
-
-                    stock_data = (
-                        build_stock_data(
-                            symbol=symbol,
-                            price=last_price,
-                            previous_close=previous_close,
-                            ltq=int(
-                                quote.get(
-                                    "ltq",
-                                    0,
-                                )
-                                or 0
-                            ),
-                            timestamp=(
-                                datetime.now(
-                                    tz=IST
-                                ).isoformat()
-                            ),
-                        )
-                    )
-
-                    latest_prices[
-                        symbol
-                    ] = stock_data
-
-                print(
-                    "Loaded prices: "
-                    f"{min(start + batch_size, len(symbols))}"
-                    f"/{len(symbols)}"
-                )
+            print(f"Loaded actual last-traded prices for {updated_count} stocks.")
+            last_quote_refresh = now
+            market_data_message = None if updated_count else "Upstox returned no last-traded prices for this list."
 
         print()
 
@@ -931,8 +764,10 @@ async def update_latest_from_rest():
         )
 
         print(error)
+        market_data_message = "The Upstox market feed could not be reached. Try again shortly."
 
-    apply_fallback_prices()
+    if last_quote_refresh is None:
+        last_quote_refresh = datetime.now(tz=IST)
 
 
 # ============================================================
@@ -1175,6 +1010,7 @@ def on_message(message):
                 timestamp=timestamp_ms,
             )
         )
+        stock_data["source"] = "upstox_websocket"
 
         latest_prices[
             symbol
@@ -1355,13 +1191,10 @@ async def startup_event():
     # 2. Initialize real live candle buffers.
     initialize_live_candle_buffers()
 
-    # 3. Apply fallback prices.
-    apply_fallback_prices()
-
-    # 4. Fetch latest Upstox prices.
+    # 3. Fetch real Upstox market prices.
     await update_latest_from_rest()
 
-    # 5. Start WebSocket.
+    # 4. Start WebSocket.
     asyncio.create_task(
         asyncio.to_thread(
             start_upstox_stream
@@ -1481,31 +1314,77 @@ async def get_ltp(
 
 @app.get("/market/overview")
 async def market_overview():
-
-    if not latest_prices:
-
+    if not STOCKS:
+        await load_stock_universe()
+    if last_quote_refresh is None or (datetime.now(tz=IST) - last_quote_refresh).total_seconds() >= 60:
         await update_latest_from_rest()
 
-    # Overview feeds the UI and trade flows. Exclude hard-coded preview prices
-    # so an unavailable market quote is never presented as a real price.
     available_prices = {
         symbol: quote
         for symbol, quote in latest_prices.items()
         if isinstance(quote, dict)
         and float(quote.get("price") or 0) > 0
-        and (quote.get("timestamp") or quote.get("source") in {"upstox", "upstox_websocket"})
+        and quote.get("source") in {"upstox", "last_close", "upstox_websocket"}
     }
+    source = "live" if any(quote.get("source") in {"upstox", "upstox_websocket"} for quote in available_prices.values()) else "last_close"
+    if not available_prices:
+        source = "unavailable"
     return {
         "status": "success",
-        "source": "upstox" if available_prices else "unavailable",
+        "source": source,
         "count": len(available_prices),
         "stocks": available_prices,
     }
 
 
+@app.get("/market/universe")
+async def market_universe():
+    """Return every supported instrument, including rows without a quote."""
+    if not STOCKS:
+        try:
+            await load_stock_universe()
+        except RuntimeError as error:
+            print(f"Using configured symbol list while instrument master is unavailable: {error}")
+    if last_quote_refresh is None or (datetime.now(tz=IST) - last_quote_refresh).total_seconds() >= 60:
+        await update_latest_from_rest()
+
+    stocks = {}
+    universe = STOCKS or {symbol: "" for symbol in STOCK_SYMBOLS}
+    for symbol, instrument_key in universe.items():
+        quote = latest_prices.get(symbol, {})
+        valid_quote = (
+            isinstance(quote, dict)
+            and float(quote.get("price") or 0) > 0
+            and quote.get("source") in {"upstox", "last_close", "upstox_websocket"}
+        )
+        stocks[symbol] = {
+            "symbol": symbol,
+            "name": STOCK_NAMES.get(symbol, symbol),
+            "instrument_key": instrument_key,
+            "price": quote.get("price", 0) if valid_quote else 0,
+            "previous_close": quote.get("previous_close", 0) if valid_quote else 0,
+            "change": quote.get("change", 0) if valid_quote else 0,
+            "change_percent": quote.get("change_percent", 0) if valid_quote else 0,
+            "ltq": quote.get("ltq", 0) if valid_quote else 0,
+            "volume": quote.get("volume", 0) if valid_quote else 0,
+            "timestamp": quote.get("timestamp") if valid_quote else None,
+            "source": quote.get("source", "unavailable") if valid_quote else "unavailable",
+            "quote_available": bool(valid_quote),
+        }
+
+    return {
+        "status": "success",
+        "source": "live" if any(row["source"] in {"upstox", "upstox_websocket"} for row in stocks.values()) else "last_close" if any(row["quote_available"] for row in stocks.values()) else "unavailable",
+        "count": len(stocks),
+        "quoted_count": sum(1 for row in stocks.values() if row["quote_available"]),
+        "message": market_data_message,
+        "stocks": stocks,
+    }
+
+
 @app.get("/market/quote/{symbol}")
 async def market_quote(symbol: str):
-    """Return a single current quote, with sample data clearly marked."""
+    """Return an actual current or last-traded Upstox price."""
     symbol = symbol.upper().strip()
 
     if not STOCKS:
@@ -1518,81 +1397,15 @@ async def market_quote(symbol: str):
             detail=f"{symbol} is not in the supported NSE stock list.",
         )
 
-    access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
-    if not access_token:
-        sample = FALLBACK_PRICES.get(symbol)
-        if sample:
-            return {
-                **build_stock_data(
-                    symbol,
-                    sample["price"],
-                    sample["previous_close"],
-                ),
-                "source": "sample",
-            }
-        raise HTTPException(
-            status_code=503,
-            detail="Live prices are not configured. Add a current Upstox access token to the API deployment.",
-        )
+    if last_quote_refresh is None or (datetime.now(tz=IST) - last_quote_refresh).total_seconds() >= 60:
+        await update_latest_from_rest()
+    quote = latest_prices.get(symbol)
+    if isinstance(quote, dict) and quote.get("source") in {"upstox", "last_close", "upstox_websocket"} and float(quote.get("price") or 0) > 0:
+        return {**quote, "name": STOCK_NAMES.get(symbol, symbol)}
 
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(
-                "https://api.upstox.com/v3/market-quote/ltp",
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {access_token}",
-                },
-                params={"instrument_key": instrument_key},
-            )
-    except httpx.HTTPError as error:
-        print(f"Upstox quote request failed for {symbol}: {error}")
-        raise HTTPException(
-            status_code=502,
-            detail="Upstox could not be reached. Try refreshing the quote.",
-        ) from error
-
-    if response.status_code in (401, 403):
-        raise HTTPException(
-            status_code=502,
-            detail="Upstox rejected the access token. Create a fresh token and update UPSTOX_ACCESS_TOKEN in Vercel.",
-        )
-    if response.status_code != 200:
-        print(f"Upstox quote request for {symbol} returned HTTP {response.status_code}.")
-        raise HTTPException(
-            status_code=502,
-            detail="Upstox did not return a market quote. Try again shortly.",
-        )
-
-    payload = response.json()
-    quotes = payload.get("data", {})
-    quote = next(
-        (
-            item
-            for key, item in quotes.items()
-            if normalize_instrument_key(key) == normalize_instrument_key(instrument_key)
-        ),
-        None,
-    ) if isinstance(quotes, dict) else None
-    if not isinstance(quote, dict) or not quote.get("last_price"):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Upstox has no current quote for {symbol}. Check again during market hours.",
-        )
-
-    price = float(quote["last_price"])
-    previous_close = float(quote.get("cp") or price)
-    stock = build_stock_data(
-        symbol=symbol,
-        price=price,
-        previous_close=previous_close,
-        ltq=int(quote.get("ltq") or 0),
-        timestamp=quote.get("ltt") or datetime.now(tz=IST).isoformat(),
-    )
-    stock["volume"] = int(quote.get("volume") or 0)
-    stock["source"] = "upstox"
-    latest_prices[symbol] = stock
-    return stock
+    if not os.getenv("UPSTOX_ACCESS_TOKEN"):
+        raise HTTPException(status_code=503, detail="Upstox market data is not configured for this deployment.")
+    raise HTTPException(status_code=404, detail=f"Upstox has no last-traded price for {symbol}.")
 
 
 # ============================================================
@@ -1986,13 +1799,11 @@ async def get_ai_score(
 
     symbol = symbol.upper()
 
-    if symbol not in latest_prices:
-
+    if last_quote_refresh is None or (datetime.now(tz=IST) - last_quote_refresh).total_seconds() >= 60:
         await update_latest_from_rest()
 
-    apply_fallback_prices()
-
-    if symbol not in latest_prices:
+    stock = latest_prices.get(symbol)
+    if not isinstance(stock, dict) or stock.get("source") not in {"upstox", "last_close", "upstox_websocket"} or float(stock.get("price") or 0) <= 0:
 
         raise HTTPException(
             status_code=404,
@@ -2001,10 +1812,6 @@ async def get_ai_score(
                 f"for '{symbol}'."
             ),
         )
-
-    stock = latest_prices[
-        symbol
-    ]
 
     ai_result = calculate_score(
         price=float(
@@ -2020,11 +1827,7 @@ async def get_ai_score(
 
     return {
         "status": "success",
-        "source": (
-            "upstox"
-            if stock.get("timestamp")
-            else "fallback"
-        ),
+        "source": "last_close" if stock.get("source") == "last_close" else "upstox",
         "symbol": symbol,
         "price": stock["price"],
         "previous_close": stock[
@@ -2043,18 +1846,20 @@ async def get_ai_score(
 
 @app.get("/ai/scores")
 async def get_ai_scores():
-
-    if not latest_prices:
-
+    if last_quote_refresh is None or (datetime.now(tz=IST) - last_quote_refresh).total_seconds() >= 60:
         await update_latest_from_rest()
 
-    apply_fallback_prices()
+    market_prices = {
+        symbol: stock
+        for symbol, stock in latest_prices.items()
+        if isinstance(stock, dict)
+        and float(stock.get("price") or 0) > 0
+        and stock.get("source") in {"upstox", "last_close", "upstox_websocket"}
+    }
 
     results = {}
 
-    for symbol, stock in (
-        latest_prices.items()
-    ):
+    for symbol, stock in market_prices.items():
 
         ai_result = calculate_score(
             price=float(
@@ -2100,14 +1905,8 @@ async def get_ai_scores():
 
     return {
         "status": "success",
-        "source": (
-            "upstox"
-            if any(stock.get("timestamp") for stock in latest_prices.values())
-            else "fallback"
-        ),
-        "count": len(
-            results
-        ),
+        "source": "live" if any(stock.get("source") in {"upstox", "upstox_websocket"} for stock in market_prices.values()) else "last_close" if market_prices else "unavailable",
+        "count": len(results),
         "stocks": results,
     }
 
@@ -2121,12 +1920,8 @@ async def market_stocks():
 
     return {
         "status": "success",
-        "count": len(
-            STOCKS
-        ),
-        "stocks": list(
-            STOCKS.keys()
-        ),
+        "count": len(STOCK_SYMBOLS),
+        "stocks": STOCK_SYMBOLS,
     }
 
 

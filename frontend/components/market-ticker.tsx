@@ -9,7 +9,7 @@ const featured = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "B
 
 export function MarketTicker() {
   const [items, setItems] = useState<Item[]>([]);
-  const [isSample, setIsSample] = useState(false);
+  const [isAfterHours, setIsAfterHours] = useState(false);
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -17,7 +17,7 @@ export function MarketTicker() {
         const response = await fetch(`${API_URL}/market/overview`, { cache: "no-store" });
         if (!response.ok) return;
         const payload = await response.json();
-        if (active) setIsSample(payload?.source === "fallback");
+        if (active) setIsAfterHours(payload?.source === "last_close");
         const rows = payload?.stocks;
         const lookup = Array.isArray(rows) ? Object.fromEntries(rows.map((row: any) => [row.symbol, row])) : rows || {};
         const next = featured
@@ -33,7 +33,7 @@ export function MarketTicker() {
   if (items.length === 0) return null;
   const tape = [...items, ...items];
   return <div className="market-ticker" aria-label="Featured stocks">
-    <div className="ticker-label">{isSample ? "SAMPLE QUOTES" : "ON THE RADAR"}</div>
+    <div className="ticker-label">{isAfterHours ? "LAST TRADED" : "MARKET"}</div>
     <div className="ticker-window"><div className="ticker-track">
       {tape.map((item, index) => <Link className="ticker-item" href={`/stock/${item.symbol}`} key={`${item.symbol}-${index}`}>
         <span className="ticker-monogram">{item.symbol.slice(0, 1)}</span><strong>{item.symbol}</strong>

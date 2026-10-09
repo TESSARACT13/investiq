@@ -119,29 +119,77 @@ body {
 .stock-detail-page svg text { fill: #718077; }
 .stock-detail-page svg line[stroke="#1e293b"] { stroke: #e1e8e1; }
 
-/* Bring legacy dark feature screens into the same soft, readable workspace. */
-main[class*="bg-[#050"], main[class*="bg-[#070"] { background: #f4f6f3 !important; color: #25342b !important; }
-main[class*="bg-[#050"] [class*="text-white"], main[class*="bg-[#070"] [class*="text-white"] { color: #26372d; }
-main[class*="bg-[#050"] button[class*="bg-"][class*="text-white"], main[class*="bg-[#070"] button[class*="bg-"][class*="text-white"] { color: #fff; }
-main[class*="bg-[#050"] [class*="text-slate-"], main[class*="bg-[#070"] [class*="text-slate-"], main[class*="bg-[#050"] [class*="text-gray-"], main[class*="bg-[#070"] [class*="text-gray-"] { color: #78867d; }
-main[class*="bg-[#050"] [class*="border-white/"], main[class*="bg-[#070"] [class*="border-white/"] { border-color: #e3e9e3; }
-main[class*="bg-[#050"] [class*="bg-white/"], main[class*="bg-[#070"] [class*="bg-white/"], main[class*="bg-[#050"] [class*="bg-[#090"], main[class*="bg-[#070"] [class*="bg-[#0"] { background-color: #fff; }
-main[class*="bg-[#050"] [class*="bg-black/"], main[class*="bg-[#070"] [class*="bg-black/"] { background-color: #f7f9f6; }
+/* Shared application surface: warm white, ink, one forest-green accent. */
+.app-page main:not(.stock-detail-page) { background: #f4f6f3 !important; color: #26372d !important; }
+.app-page main:not(.stock-detail-page) h1,
+.app-page main:not(.stock-detail-page) h2,
+.app-page main:not(.stock-detail-page) h3 { color: #26372d; letter-spacing: -.025em; }
+.app-page main:not(.stock-detail-page) [class*="text-white"] { color: #26372d !important; }
+.app-page main:not(.stock-detail-page) button[class*="bg-"][class*="text-white"] { color: #fff !important; }
+.app-page main:not(.stock-detail-page) [class*="text-slate-"],
+.app-page main:not(.stock-detail-page) [class*="text-gray-"] { color: #77857d; }
+.app-page main:not(.stock-detail-page) [class*="border-white/"],
+.app-page main:not(.stock-detail-page) [class*="border-slate-"] { border-color: #e2e9e2; }
+.app-page main:not(.stock-detail-page) [class*="bg-white/"],
+.app-page main:not(.stock-detail-page) [class*="bg-[#0"],
+.app-page main:not(.stock-detail-page) [class*="bg-black/"] { background-color: #fff; }
+.app-page main:not(.stock-detail-page) [class*="from-"],
+.app-page main:not(.stock-detail-page) [class*="via-"],
+.app-page main:not(.stock-detail-page) [class*="to-"] { --tw-gradient-from: #fff; --tw-gradient-to: #fff; --tw-gradient-stops: #fff, #fff; }
+.app-page main:not(.stock-detail-page) [class*="text-blue-"],
+.app-page main:not(.stock-detail-page) [class*="text-violet-"],
+.app-page main:not(.stock-detail-page) [class*="text-purple-"] { color: #39734f; }
+.app-page main:not(.stock-detail-page) [class*="text-green-"],
+.app-page main:not(.stock-detail-page) [class*="text-emerald-"] { color: #39734f; }
+.app-page main:not(.stock-detail-page) [class*="text-amber-"],
+.app-page main:not(.stock-detail-page) [class*="text-yellow-"] { color: #77857d; }
+.app-page main:not(.stock-detail-page) [class*="bg-blue-"],
+.app-page main:not(.stock-detail-page) [class*="bg-violet-"],
+.app-page main:not(.stock-detail-page) [class*="bg-purple-"] { background-color: #eaf2eb; }
+.app-page main:not(.stock-detail-page) [class*="bg-green-"],
+.app-page main:not(.stock-detail-page) [class*="bg-emerald-"] { background-color: #eaf2eb; }
+.app-page main:not(.stock-detail-page) button[class*="bg-blue-500"],
+.app-page main:not(.stock-detail-page) button[class*="bg-green-500"],
+.app-page main:not(.stock-detail-page) button[class*="bg-emerald-500"] { background-color: #39734f; color: #fff !important; }
+.app-page main:not(.stock-detail-page) button[class*="bg-red-500"] { background-color: #a95548; color: #fff !important; }
+.app-page main:not(.stock-detail-page) [class*="border-blue-"],
+.app-page main:not(.stock-detail-page) [class*="border-violet-"],
+.app-page main:not(.stock-detail-page) [class*="border-purple-"] { border-color: #c8dccb; }
+.app-page main:not(.stock-detail-page) [class*="shadow-2xl"],
+.app-page main:not(.stock-detail-page) [class*="shadow-xl"] { box-shadow: 0 8px 24px rgb(35 52 43 / 6%); }
+.app-page main:not(.stock-detail-page) input,
+.app-page main:not(.stock-detail-page) select,
+.app-page main:not(.stock-detail-page) textarea { border-color: #dfe6df; background-color: #fff; color: #26372d; }
+.app-page main:not(.stock-detail-page) input::placeholder,
+.app-page main:not(.stock-detail-page) textarea::placeholder { color: #9aa59c; }
+.app-page main:not(.stock-detail-page) :focus-visible { outline-color: #6f9b78; }
+
+.market-explorer { padding-top: 32px !important; padding-bottom: 54px !important; }
+.market-explorer > div { max-width: 1320px; }
+.market-explorer h1 { font-size: clamp(28px, 3vw, 36px); font-weight: 680; }
+.market-explorer .group { min-height: 222px; border-radius: 17px; border-color: #e1e8e1; background: #fff; padding: 20px; box-shadow: 0 2px 6px rgb(35 52 43 / 2%); }
+.market-explorer .group:hover { transform: translateY(-2px); border-color: #a9c7ad; background: #fff; box-shadow: 0 12px 26px rgb(35 52 43 / 7%); }
+.market-explorer .group > div:first-child { min-height: 76px; }
+.market-explorer .group [class*="text-gray-700"] { color: #718077; }
+.market-explorer .group [class*="text-gray-500"] { color: #77857d; }
+.market-explorer .group [class*="border-white/"] { border-color: #e7ece7; }
+.market-explorer input { min-height: 47px; border-radius: 12px; }
+.market-explorer button:not(.group) { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
 
 .auth-page { min-height: 100vh; background: #f6f7f4; color: #23332a; }
 .auth-layout { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1.05fr) minmax(430px, .95fr); }
-.auth-welcome { display: flex; min-height: 100vh; flex-direction: column; justify-content: space-between; background: #203a2d; padding: clamp(28px, 5vw, 68px); color: #f5f5ee; }
-.auth-brand { display: flex; align-items: center; gap: 10px; color: #f5f5ee; font-size: 20px; font-weight: 720; letter-spacing: -.04em; text-decoration: none; }
-.auth-brand > span { display: grid; width: 39px; height: 39px; place-items: center; border: 1px solid #ffffff30; border-radius: 13px; color: #b9d5bc; }
+.auth-welcome { display: flex; min-height: 100vh; flex-direction: column; justify-content: space-between; background: #f4f6f3; padding: clamp(28px, 5vw, 68px); color: #26372d; }
+.auth-brand { display: flex; align-items: center; gap: 10px; color: #26372d; font-size: 20px; font-weight: 720; letter-spacing: -.04em; text-decoration: none; }
+.auth-brand > span { display: grid; width: 39px; height: 39px; place-items: center; border: 1px solid #dfe7df; border-radius: 13px; background: #fff; color: #39734f; }
 .auth-story { max-width: 535px; padding: 70px 0; }
-.auth-kicker,.auth-step { color: #a9c9af; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
+.auth-kicker,.auth-step { color: #63836a; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
 .auth-story h1 { margin: 20px 0 19px; font-size: clamp(39px, 5.2vw, 66px); font-weight: 550; letter-spacing: -.055em; line-height: 1.06; }
-.auth-story h1 em { color: #b8d4b7; font-family: Georgia, serif; font-weight: 400; }
-.auth-story > p:last-child { max-width: 405px; color: #c2d0c3; font-size: 15px; line-height: 1.75; }
-.auth-note { display: flex; align-items: center; gap: 9px; color: #c2d0c3; font-size: 11px; }
-.auth-note span { color: #b8d4b7; font-size: 17px; }
-.auth-card-wrap { display: grid; place-items: center; padding: 32px; }
-.auth-card { width: min(100%, 410px); }
+.auth-story h1 em { color: #39734f; font-family: Georgia, serif; font-weight: 400; }
+.auth-story > p:last-child { max-width: 405px; color: #77857d; font-size: 15px; line-height: 1.75; }
+.auth-note { display: flex; align-items: center; gap: 9px; color: #77857d; font-size: 11px; }
+.auth-note span { color: #39734f; font-size: 17px; }
+.auth-card-wrap { display: grid; place-items: center; background: #f4f6f3; padding: 32px; }
+.auth-card { width: min(100%, 410px); border: 1px solid #e5ebe5; border-radius: 22px; background: #fff; padding: clamp(24px, 4vw, 38px); box-shadow: 0 12px 34px rgb(35 52 43 / 5%); }
 .auth-card .auth-step { color: #6c9275; }
 .auth-card h2 { margin: 13px 0 6px; color: #26362d; font-size: 28px; font-weight: 650; letter-spacing: -.04em; }
 .auth-subtitle { color: #7b887f; font-size: 13px; }
