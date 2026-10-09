@@ -540,8 +540,18 @@ export default function StockDetailsPage() {
         );
 
         if (!cancelled) {
-          // Never replace a missing market quote with a stale demo price.
-          setStock(null);
+          // Keep the instrument page usable without presenting an old demo
+          // quote as current market data.
+          const instrument = FALLBACK_STOCKS[symbol];
+          setStock({
+            symbol,
+            name: instrument?.name ?? symbol,
+            price: 0,
+            previous_close: 0,
+            change: 0,
+            change_percent: 0,
+            volume: 0,
+          });
           setQuoteStatus("unavailable");
           setQuoteMessage(error instanceof Error ? error.message : "Current price is unavailable.");
         }
