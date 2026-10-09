@@ -501,16 +501,14 @@ export default function MarketsPage() {
               event.data
             );
 
-          if (
-            message.type !==
-              "market_update" ||
-            !message.data
-          ) {
+          const rawLiveData = message.data ?? message.stocks;
+          if (message.type !== "market_update" || !rawLiveData) {
             return;
           }
 
-          const liveData =
-            message.data;
+          const liveData: Record<string, any> = Array.isArray(rawLiveData)
+            ? Object.fromEntries(rawLiveData.map((item: any) => [String(item.symbol || "").toUpperCase(), item]))
+            : rawLiveData;
 
           setStocks(
             (currentStocks) => {
@@ -586,7 +584,9 @@ export default function MarketsPage() {
             }
           );
 
-          setSource("live");
+          if (Object.values(liveData).some((item: any) => Boolean(item?.timestamp))) {
+            setSource("live");
+          }
           setLoading(false);
         } catch (error) {
           console.error(
@@ -908,7 +908,7 @@ export default function MarketsPage() {
 
           <div className="hidden items-center gap-2 text-xs text-gray-600 sm:flex">
             <BrainCircuit size={14} />
-            Live market intelligence
+            Quote-aware stock analysis
           </div>
         </div>
 

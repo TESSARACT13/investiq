@@ -2270,6 +2270,7 @@ function InteractiveTradingChart({
 
       {crosshairVisible && hoveredCandle && (
         <div className="absolute right-5 top-4 z-10 rounded-xl border border-white/10 bg-[#10141e]/95 px-4 py-3 text-xs shadow-xl backdrop-blur">
+          <p className="mb-2 border-b border-white/10 pb-2 text-[10px] font-medium text-slate-400">{formatFullDate(hoveredCandle.time)}</p>
           <div className="grid grid-cols-2 gap-x-5 gap-y-1">
             <span className="text-slate-500">Open</span>
             <span className="text-right font-medium">{formatPrice(hoveredCandle.open)}</span>
