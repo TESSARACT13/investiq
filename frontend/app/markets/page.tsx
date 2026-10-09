@@ -356,7 +356,7 @@ function normalizeMarketResponse(
     typeof rawStocks === "object" &&
     !Array.isArray(rawStocks)
   ) {
-    return Object.entries(
+    const received = Object.entries(
       rawStocks as Record<string, unknown>
     )
       .map(([symbol, value]) =>
@@ -368,6 +368,11 @@ function normalizeMarketResponse(
         ): stock is Stock =>
           stock !== null
       );
+    const known = new Set(received.map((stock) => stock.symbol));
+    return [...received, ...Object.keys(COMPANY_NAMES).filter((symbol) => !known.has(symbol)).map((symbol) => ({
+      symbol, name: getCompanyName(symbol), price: 0, previous_close: 0,
+      change: 0, change_percent: 0, ltq: 0,
+    }))];
   }
 
   /*
@@ -416,7 +421,7 @@ export default function MarketsPage() {
 
   const [source, setSource] =
     useState<
-      "live" | "last-recorded"
+      "live" | "last-recorded" | "fallback"
     >("last-recorded");
 
   const [loading, setLoading] =
@@ -451,7 +456,7 @@ export default function MarketsPage() {
       );
 
       setStocks(normalized);
-      setSource("last-recorded");
+      setSource(data?.source === "fallback" ? "fallback" : "last-recorded");
     } catch (error) {
       console.error(
         "Market overview error:",
@@ -771,13 +776,12 @@ export default function MarketsPage() {
 
                 {connected
                   ? "Live connection"
-                  : "Last recorded prices"}
+                  : source === "fallback" ? "Sample quotes · live feed not connected" : "Last recorded prices"}
               </div>
             </div>
 
             <p className="mt-2 text-sm text-gray-500">
-              Real-time market intelligence
-              across the INVESTIQ universe
+              Browse the INVESTIQ stock universe. Live prices appear when your market feed is connected.
             </p>
           </div>
 
@@ -810,7 +814,7 @@ export default function MarketsPage() {
 
             {source === "live"
               ? "Showing live market data from Upstox"
-              : "Market closed — showing the last recorded market price"}
+              : source === "fallback" ? "Sample quotes are for preview only. Connect Upstox for current prices." : "Quotes vary by symbol. We don’t invent prices when a feed is unavailable."}
           </div>
 
           <div className="flex items-center gap-2 text-xs">
@@ -992,17 +996,17 @@ export default function MarketsPage() {
 
                     <div className="mt-7">
                       <p className="text-2xl font-bold tabular-nums">
-                        ₹
+                        {stock.price > 0 ? "₹" : ""}
                         {stock.price.toLocaleString(
                           "en-IN",
                           {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           }
-                        )}
+                        )}{stock.price <= 0 && <span className="text-sm font-medium text-gray-500">Quote unavailable</span>}
                       </p>
 
-                      <div className="mt-2 flex items-center gap-2 text-sm">
+                      {stock.price > 0 && <div className="mt-2 flex items-center gap-2 text-sm">
                         <span
                           className={
                             positive
@@ -1034,7 +1038,7 @@ export default function MarketsPage() {
                           )}
                           %)
                         </span>
-                      </div>
+                      </div>}
                     </div>
 
                     {/* PREVIOUS CLOSE */}

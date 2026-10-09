@@ -24,6 +24,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { MarketTicker } from "@/components/market-ticker";
 
 const navigation = [
   {
@@ -211,10 +212,11 @@ export function AppFrame({ children }: { children: ReactNode }) {
             <span className="topbar-title">Welcome{user?.name ? `, ${user.name.split(" ")[0]}` : ""}</span>
           </div>
           <div className="topbar-actions">
-            <span className="market-status"><span /> Market data</span>
+            <span className="market-status"><span /> Paper investing</span>
             <span className="topbar-avatar">{initials || "I"}</span>
           </div>
         </header>
+        <MarketTicker />
         <div className="app-page">{children}</div>
       </div>
 

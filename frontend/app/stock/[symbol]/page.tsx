@@ -526,6 +526,7 @@ export default function StockDetailsPage() {
 
   const [candles, setCandles] =
     useState<Candle[]>([]);
+  const [chartNotice, setChartNotice] = useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -718,6 +719,8 @@ export default function StockDetailsPage() {
         );
 
       if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setChartNotice(String(body?.detail || "Live candles are unavailable. Connect a market data feed."));
         setCandles([]);
         liveCandlesRef.current =
           [];
@@ -745,6 +748,7 @@ export default function StockDetailsPage() {
       setCandles(
         normalized
       );
+      setChartNotice(normalized.length ? "" : "No live candles have arrived yet. Historical chart data is available when your market feed is connected.");
     } catch (error) {
       console.error(
         "Live candle loading error:",
@@ -776,6 +780,8 @@ export default function StockDetailsPage() {
         );
 
       if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setChartNotice(String(body?.detail || "Historical prices are unavailable. Connect your Upstox market feed to load real candles."));
         setCandles([]);
         return;
       }
@@ -792,11 +798,9 @@ export default function StockDetailsPage() {
             ? data.candles
             : [];
 
-      setCandles(
-        normalizeCandles(
-          rawCandles
-        )
-      );
+      const normalized = normalizeCandles(rawCandles);
+      setCandles(normalized);
+      setChartNotice(normalized.length ? "" : "No historical candles returned for this interval. Try another timeline or connect your Upstox market feed.");
     } catch (error) {
       console.error(
         "Chart loading error:",
@@ -1619,6 +1623,7 @@ export default function StockDetailsPage() {
               ) : (
                 <InteractiveTradingChart
                   candles={candles}
+                  notice={chartNotice}
                   chartType={
                     chartType
                   }
@@ -2075,11 +2080,13 @@ function ChartTypeButton({
 
 function InteractiveTradingChart({
   candles,
+  notice,
   chartType,
   timeframe,
   live,
 }: {
   candles: Candle[];
+  notice: string;
   chartType: ChartType;
   timeframe: Timeframe;
   live: boolean;
@@ -2239,7 +2246,7 @@ function InteractiveTradingChart({
               : 'Historical chart data is not available yet.'}
           </p>
           <p className="mt-2 text-xs leading-5 text-slate-600">
-            Try another timeframe or refresh the market data.
+            {notice || "Try another timeframe or refresh the market data."}
           </p>
         </div>
       </div>
@@ -2315,7 +2322,7 @@ function InteractiveTradingChart({
               fill="#475569"
               fontSize="10"
             >
-              {tick.label}
+              {formatXAxisTime(chartCandles[tick.index].time, timeframe)}
             </text>
           ))}
 
